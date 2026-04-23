@@ -29,6 +29,22 @@ impl EscrowContract {
         env.storage().instance().set(&DataKey::Paused, &false);
     }
 
+    /// Rotate the oracle address — requires the current oracle or admin to authorize.
+    pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Oracle, &new_oracle);
+        env.events().publish(
+            (Symbol::new(&env, "admin"), symbol_short!("oracle")),
+            new_oracle,
+        );
+        Ok(())
+    }
+
     /// Pause the contract — admin only. Blocks create_match, deposit, and submit_result.
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin: Address = env
@@ -80,8 +96,14 @@ impl EscrowContract {
         if stake_amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        if player1 == player2 {
+            return Err(Error::InvalidPlayers);
+        }
         if game_id.len() > MAX_GAME_ID_LEN {
             return Err(Error::InvalidGameId);
+        }
+        if env.storage().persistent().has(&DataKey::GameId(game_id.clone())) {
+            return Err(Error::DuplicateGameId);
         }
 
         let id: u64 = env
@@ -111,6 +133,15 @@ impl EscrowContract {
         env.storage().persistent().set(&DataKey::Match(id), &m);
         env.storage().persistent().extend_ttl(
             &DataKey::Match(id),
+            MATCH_TTL_LEDGERS,
+            MATCH_TTL_LEDGERS,
+        );
+        // Mark game_id as used to prevent duplicate matches
+        env.storage()
+            .persistent()
+            .set(&DataKey::GameId(m.game_id.clone()), &id);
+        env.storage().persistent().extend_ttl(
+            &DataKey::GameId(m.game_id.clone()),
             MATCH_TTL_LEDGERS,
             MATCH_TTL_LEDGERS,
         );
@@ -179,6 +210,11 @@ impl EscrowContract {
             );
         }
 
+        env.events().publish(
+            (Symbol::new(&env, "match"), symbol_short!("deposit")),
+            (match_id, player),
+        );
+
         env.storage()
             .persistent()
             .set(&DataKey::Match(match_id), &m);
@@ -196,6 +232,7 @@ impl EscrowContract {
         match_id: u64,
         winner: Winner,
         caller: Address,
+        game_id: String,
     ) -> Result<(), Error> {
         if env
             .storage()
@@ -225,6 +262,11 @@ impl EscrowContract {
 
         if m.state != MatchState::Active {
             return Err(Error::InvalidState);
+        }
+
+        // Verify the oracle is submitting a result for the correct game
+        if m.game_id != game_id {
+            return Err(Error::GameIdMismatch);
         }
 
         if !m.player1_deposited || !m.player2_deposited {
