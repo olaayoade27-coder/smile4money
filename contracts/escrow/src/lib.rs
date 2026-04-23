@@ -80,8 +80,19 @@ impl EscrowContract {
         if stake_amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        if player1 == player2 {
+            return Err(Error::InvalidPlayers);
+        }
         if game_id.len() > MAX_GAME_ID_LEN {
             return Err(Error::InvalidGameId);
+        }
+        // Reject duplicate game_id — same game cannot be used in multiple matches
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::GameId(game_id.clone()))
+        {
+            return Err(Error::DuplicateGameId);
         }
 
         let id: u64 = env
@@ -100,7 +111,7 @@ impl EscrowContract {
             player2,
             stake_amount,
             token,
-            game_id,
+            game_id: game_id.clone(),
             platform,
             state: MatchState::Pending,
             player1_deposited: false,
@@ -114,13 +125,22 @@ impl EscrowContract {
             MATCH_TTL_LEDGERS,
             MATCH_TTL_LEDGERS,
         );
+        // Mark game_id as used
+        env.storage()
+            .persistent()
+            .set(&DataKey::GameId(game_id), &id);
+        env.storage().persistent().extend_ttl(
+            &DataKey::GameId(m.game_id.clone()),
+            MATCH_TTL_LEDGERS,
+            MATCH_TTL_LEDGERS,
+        );
         // Guard against u64 overflow in release mode where wrapping would occur silently
         let next_id = id.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().instance().set(&DataKey::MatchCount, &next_id);
 
         env.events().publish(
             (Symbol::new(&env, "match"), symbol_short!("created")),
-            (id, m.player1, m.player2, stake_amount),
+            (id, m.player1.clone(), m.player2.clone(), stake_amount),
         );
 
         Ok(id)
@@ -187,13 +207,21 @@ impl EscrowContract {
             MATCH_TTL_LEDGERS,
             MATCH_TTL_LEDGERS,
         );
+
+        env.events().publish(
+            (Symbol::new(&env, "match"), symbol_short!("deposit")),
+            (match_id, player),
+        );
+
         Ok(())
     }
 
     /// Oracle submits the verified match result and triggers payout.
+    /// `game_id` must match the game_id stored in the match to prevent cross-match result injection.
     pub fn submit_result(
         env: Env,
         match_id: u64,
+        game_id: String,
         winner: Winner,
         caller: Address,
     ) -> Result<(), Error> {
@@ -222,6 +250,11 @@ impl EscrowContract {
             .persistent()
             .get(&DataKey::Match(match_id))
             .ok_or(Error::MatchNotFound)?;
+
+        // Verify the oracle is submitting a result for the correct game
+        if m.game_id != game_id {
+            return Err(Error::GameIdMismatch);
+        }
 
         if m.state != MatchState::Active {
             return Err(Error::InvalidState);
@@ -309,6 +342,23 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Rotate the trusted oracle address — admin only.
+    /// Use this if the oracle service is compromised or needs to be replaced.
+    pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Oracle, &new_oracle);
+        env.events().publish(
+            (Symbol::new(&env, "admin"), symbol_short!("oracle")),
+            new_oracle,
+        );
+        Ok(())
+    }
+
     /// Read a match by ID.
     pub fn get_match(env: Env, match_id: u64) -> Result<Match, Error> {
         env.storage()
@@ -337,7 +387,12 @@ impl EscrowContract {
         if m.state == MatchState::Completed || m.state == MatchState::Cancelled {
             return Ok(0);
         }
-        let deposited = m.player1_deposited as i128 + m.player2_deposited as i128;
+        // Explicit logic avoids fragile bool-to-integer casting
+        let deposited: i128 = match (m.player1_deposited, m.player2_deposited) {
+            (true, true) => 2,
+            (true, false) | (false, true) => 1,
+            (false, false) => 0,
+        };
         Ok(deposited * m.stake_amount)
     }
 }
