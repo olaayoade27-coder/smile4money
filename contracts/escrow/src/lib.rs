@@ -29,6 +29,22 @@ impl EscrowContract {
         env.storage().instance().set(&DataKey::Paused, &false);
     }
 
+    /// Rotate the oracle address — requires the current oracle or admin to authorize.
+    pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Oracle, &new_oracle);
+        env.events().publish(
+            (Symbol::new(&env, "admin"), symbol_short!("oracle")),
+            new_oracle,
+        );
+        Ok(())
+    }
+
     /// Pause the contract — admin only. Blocks create_match, deposit, and submit_result.
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin: Address = env
@@ -199,6 +215,11 @@ impl EscrowContract {
             );
         }
 
+        env.events().publish(
+            (Symbol::new(&env, "match"), symbol_short!("deposit")),
+            (match_id, player),
+        );
+
         env.storage()
             .persistent()
             .set(&DataKey::Match(match_id), &m);
@@ -224,6 +245,7 @@ impl EscrowContract {
         game_id: String,
         winner: Winner,
         caller: Address,
+        game_id: String,
     ) -> Result<(), Error> {
         if env
             .storage()
@@ -258,6 +280,11 @@ impl EscrowContract {
 
         if m.state != MatchState::Active {
             return Err(Error::InvalidState);
+        }
+
+        // Verify the oracle is submitting a result for the correct game
+        if m.game_id != game_id {
+            return Err(Error::GameIdMismatch);
         }
 
         if !m.player1_deposited || !m.player2_deposited {
