@@ -1,5 +1,7 @@
 # smile4money — Competitive Chess Betting on Stellar
 
+[![CI](https://github.com/ayomidearegbeshola29-dev/smile4money/actions/workflows/ci.yml/badge.svg)](https://github.com/ayomidearegbeshola29-dev/smile4money/actions/workflows/ci.yml)
+
 A trustless chess wagering platform built on Stellar Soroban smart contracts. Players stake XLM or USDC before a match, and the winner is automatically paid out the moment the game ends — no middleman, no delays, no trust required.
 
 ## 🎯 What is smile4money?
