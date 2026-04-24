@@ -4,38 +4,37 @@
 
 Core escrow and oracle functionality on Stellar Soroban.
 
-- XLM-only escrow contract
-- Lichess Oracle integration
-- Basic match flow: create → deposit → result → payout
-- Draw handling (stakes returned to both players)
-- Admin pause / unpause controls
+- XLM escrow contract with full match lifecycle (Pending → Active → Completed / Cancelled)
+- Lichess oracle integration
+- Admin pause / unpause circuit breaker
+- Re-initialization guard on both contracts
+- TTL extension on all persistent storage entries
 - On-chain events for all state transitions
-- GitHub Actions CI (cargo test + cargo build --target wasm32)
+- GitHub Actions CI (cargo test + cargo clippy)
 
-## v1.1 — Multi-token & Chess.com
+## v1.1 — Token Support & Chess.com Oracle
 
-- USDC support (and any SEP-41 token)
-- Chess.com Oracle integration
-- Oracle address rotation (`update_oracle` admin function)
-- Timeout-based cancellation: player2 can cancel after a configurable ledger timeout if player1 never deposits
+- USDC and arbitrary SAC token support (token address is already a parameter; this milestone validates multi-token flows end-to-end)
+- Chess.com oracle integration
+- `update_oracle` admin function for key rotation without redeployment
+- Game ID uniqueness enforcement to prevent duplicate match payouts
 
 ## v2.0 — Tournaments
 
-- Multi-game tournament brackets
-- Bracket payout contract: distributes prize pool across rounds
-- Tournament admin: create bracket, seed players, advance rounds
-- On-chain bracket state and results
+- Multi-match tournament bracket contract
+- Bracket payout logic (winner advances, loser is eliminated and refunded)
+- Tournament admin role with configurable prize splits
 
 ## v3.0 — Frontend
 
-- Web UI with Stellar wallet integration (Freighter, xBull)
-- Match creation and deposit flow in-browser
+- Web frontend with Stellar wallet integration (Freighter / Albedo)
+- Match creation and deposit UI
 - Live match status and payout history
-- Off-chain indexer for event streaming
+- Oracle status dashboard
 
 ## v4.0 — Mobile & Matchmaking
 
 - Mobile app (iOS / Android)
-- ELO-based matchmaking: pair players of similar rating
-- Leaderboards: on-chain ranking by winnings and win rate
-- Push notifications for match events
+- ELO-based matchmaking — players are paired with opponents of similar rating
+- Global leaderboard with on-chain verifiable win/loss records
+- Configurable stake tiers and time controls

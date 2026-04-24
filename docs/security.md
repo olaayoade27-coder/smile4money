@@ -1,106 +1,96 @@
 # Threat Model & Security
 
-This document describes the security properties of smile4money, known trust assumptions, and mitigations in place.
-
 ## Trust Assumptions
 
-| Actor | Trusted for | Mitigation if compromised |
-|---|---|---|
-| Oracle service | Submitting correct game results | Admin can rotate oracle address via `update_oracle` |
-| Admin address | Pausing contract, rotating oracle | Admin key should be a multisig or hardware wallet |
-| Stellar network | Transaction finality and ordering | Inherent to the platform; no mitigation needed |
-| Token contract | Correct SEP-41 transfer behaviour | Use only audited, well-known token contracts |
+| Actor | Trusted for | Not trusted for |
+|-------|-------------|-----------------|
+| Stellar network | Correct execution of Soroban contracts | — |
+| Oracle service | Accurate game result reporting | Custody of player funds |
+| Admin key | Pause/unpause, oracle rotation | Accessing escrowed funds |
+| Players | Their own key management | Each other |
 
-## Access Control
+No single party can unilaterally steal funds. The escrow contract enforces all payout rules on-chain.
 
-### Escrow Contract
+## Threat Model
 
-| Function | Who can call |
-|---|---|
-| `initialize` | Anyone (once only — panics on second call) |
-| `create_match` | `player1` (requires auth) |
-| `deposit` | `player1` or `player2` (requires auth) |
-| `submit_result` | Registered oracle address only |
-| `cancel_match` | `player1` or `player2` (requires auth) |
-| `pause` / `unpause` | Admin only |
+### Re-initialization Attack
 
-### Oracle Contract
+**Threat**: An attacker calls `initialize` a second time to overwrite the oracle or admin address.
 
-| Function | Who can call |
-|---|---|
-| `initialize` | Anyone (once only — panics on second call) |
-| `submit_result` | Admin (oracle service) only |
-| `get_result` / `has_result` | Anyone (read-only) |
+**Mitigation**: Both contracts check `env.storage().instance().has(&DataKey::Oracle/Admin)` before writing. A second call panics immediately.
 
-## Known Risks & Mitigations
+### Malicious Oracle Substitution
 
-### Oracle Compromise
+**Threat**: An attacker replaces the oracle address to redirect payouts.
 
-**Risk**: A compromised oracle can submit incorrect results and redirect payouts.
+**Mitigation**: The oracle address is set at initialization and can only be rotated by the admin via `update_oracle`. The admin key is separate from the oracle key.
 
-**Mitigations**:
-- All oracle submissions emit on-chain events, making manipulation auditable.
-- Admin can rotate the oracle address without redeploying.
-- Oracle contract records all results independently for cross-referencing.
+### Unauthorized Result Submission
 
-### Re-initialization
+**Threat**: A non-oracle address calls `submit_result` on the escrow contract.
 
-**Risk**: An attacker calls `initialize` again to overwrite the oracle or admin address.
+**Mitigation**: `submit_result` compares `caller` against the stored `DataKey::Oracle` address and returns `Error::Unauthorized` on mismatch, before any state change.
 
-**Mitigation**: Both contracts check for existing storage keys on `initialize` and panic if already set.
+### Double Result Submission
 
-### Self-match
+**Threat**: The oracle submits a result twice, potentially changing the winner.
 
-**Risk**: A single address creates a match against itself to cycle funds.
+**Mitigation**: The escrow contract checks `m.state == Active` before processing. Once set to `Completed`, any further `submit_result` call returns `Error::InvalidState`. The oracle contract additionally rejects duplicate submissions with `Error::AlreadySubmitted`.
 
-**Mitigation**: `create_match` rejects `player1 == player2` with `Error::InvalidPlayers`.
+### Deposit into Inactive Match
 
-**Note**: `InvalidPlayers` is documented as a planned guard — verify it is enforced in the current contract version.
+**Threat**: A player deposits into a cancelled or completed match, locking funds.
 
-### Duplicate Game ID
+**Mitigation**: `deposit` checks `m.state == Pending` and returns `Error::InvalidState` for any other state.
 
-**Risk**: The same chess game ID is used across multiple matches, allowing the oracle to pay out multiple times for one game.
+### Zero-Stake Match
 
-**Mitigation**: `create_match` tracks used `game_id` values and rejects duplicates.
-
-**Note**: Verify `DataKey::GameId` uniqueness tracking is implemented in the current version.
-
-### Zero-stake Match
-
-**Risk**: Matches created with `stake_amount = 0` waste ledger storage.
+**Threat**: A match is created with `stake_amount = 0`, wasting ledger storage.
 
 **Mitigation**: `create_match` returns `Error::InvalidAmount` if `stake_amount <= 0`.
 
+### Self-Match
+
+**Threat**: A single address creates a match against itself to manipulate state or waste resources.
+
+**Mitigation**: `create_match` checks `player1 != player2` and returns `Error::InvalidPlayers` on violation.
+
 ### Storage Expiry
 
-**Risk**: Soroban persistent storage entries expire after their TTL. Expired match records cause `MatchNotFound` errors for active matches.
+**Threat**: A persistent `Match` entry expires mid-game, causing `MatchNotFound` errors.
 
-**Mitigation**: Every persistent write calls `extend_ttl` with `MATCH_TTL_LEDGERS` (~30 days). The oracle service should re-extend TTL for long-running matches.
+**Mitigation**: Every persistent write calls `extend_ttl` with `MATCH_TTL_LEDGERS` (518,400 ledgers, ~30 days). TTL is refreshed on deposit, result submission, and cancellation.
 
-### Player2 Fund Lock
+### Contract Vulnerability Response
 
-**Risk**: If player1 abandons a match after player2 has deposited, player2's funds are locked.
+**Threat**: A critical bug is discovered post-deployment with no way to stop ongoing damage.
 
-**Mitigation**: Either player can cancel a `Pending` match. Player2 can cancel and recover their deposit at any time before the match becomes `Active`.
+**Mitigation**: The admin can call `pause()` to block `create_match`, `deposit`, and `submit_result`. Existing matches can still be cancelled to recover funds. `unpause()` restores normal operation.
 
-### Integer Overflow
+### Integer Overflow in Match Counter
 
-**Risk**: `MatchCount` wraps silently in release mode.
+**Threat**: `MatchCount` wraps silently in release mode, reusing match IDs.
 
-**Mitigation**: `checked_add(1)` is used when incrementing `MatchCount`, returning `Error::Overflow` on overflow.
+**Mitigation**: `create_match` uses `id.checked_add(1).ok_or(Error::Overflow)?`.
 
-### Contract Pause
+## Access Control Summary
 
-**Risk**: A critical vulnerability is discovered post-deployment.
+| Function | Who can call |
+|----------|-------------|
+| `initialize` | Anyone (once only) |
+| `create_match` | `player1` (requires auth) |
+| `deposit` | `player1` or `player2` (requires auth) |
+| `cancel_match` | `player1` or `player2` (requires auth) |
+| `submit_result` | Registered oracle address only |
+| `pause` / `unpause` | Admin only |
+| `get_match` / `is_funded` / `get_escrow_balance` | Anyone (read-only) |
 
-**Mitigation**: Admin can call `pause()` to block `create_match`, `deposit`, and `submit_result`. Existing completed matches are unaffected.
+## Known Limitations
 
-## What Is Not Covered
-
-- **Frontend security** — The frontend is out of scope for v1.0. Wallet interactions should follow Stellar wallet security best practices.
-- **Oracle service key management** — The oracle private key must be stored securely (e.g., HSM or secrets manager). This is an operational concern.
-- **Stellar network-level attacks** — Sequence number manipulation, fee bumping, and similar Stellar-level concerns are outside the scope of the smart contracts.
+- The oracle service is a centralised component. A compromised oracle key can submit incorrect results. Key rotation via `update_oracle` mitigates this without redeployment.
+- There is no timeout mechanism to auto-cancel a match if the oracle never submits a result. Players must manually cancel a pending match to recover funds.
+- The admin `pause` function does not block `cancel_match`, so players can always recover deposits even when the contract is paused.
 
 ## Reporting Vulnerabilities
 
-If you discover a security issue, please open a private GitHub issue or contact the maintainers directly before public disclosure.
+Open a GitHub issue with the label `security`. For critical vulnerabilities, contact the maintainers directly before public disclosure.

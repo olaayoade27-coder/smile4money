@@ -1,42 +1,39 @@
 # Architecture Overview
 
-smile4money is a trustless chess wagering platform built on Stellar Soroban smart contracts. This document describes the system components and how they interact.
+## System Components
 
-## Components
+smile4money is composed of two Soroban smart contracts and an off-chain oracle service.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Players                              │
-│              (Stellar wallets / frontend)                   │
-└────────────────────┬────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                        Players                          │
+│              (Stellar wallets / frontend)               │
+└────────────────────┬────────────────────────────────────┘
                      │ create_match / deposit / cancel_match
                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Escrow Contract                            │
-│                                                             │
-│  • Holds XLM / USDC stakes in persistent storage           │
-│  • Manages match lifecycle (Pending → Active → Completed)  │
-│  • Executes payouts on verified result                      │
-│  • Admin pause / unpause controls                          │
-└────────────────────┬────────────────────────────────────────┘
-                     │ submit_result (oracle address only)
-                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Oracle Contract                            │
-│                                                             │
-│  • Stores verified match results on-chain                  │
-│  • Admin-gated: only the oracle service can write          │
-│  • Emits events for off-chain indexers                     │
-└────────────────────┬────────────────────────────────────────┘
-                     │ polls game APIs
-                     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Off-chain Oracle Service                       │
-│                                                             │
-│  • Watches Lichess / Chess.com APIs for game results       │
-│  • Submits verified results to the Oracle Contract         │
-│  • Calls submit_result on the Escrow Contract to pay out   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│               Escrow Contract (Soroban)                 │
+│  - Holds stakes in persistent storage                   │
+│  - Manages match lifecycle (Pending → Active →          │
+│    Completed / Cancelled)                               │
+│  - Executes payouts on submit_result                    │
+│  - Admin: pause / unpause                               │
+└────────────────────┬────────────────────────────────────┘
+                     │ submit_result(match_id, winner, caller)
+                     ▲
+┌─────────────────────────────────────────────────────────┐
+│               Oracle Contract (Soroban)                 │
+│  - Stores verified results keyed by match_id            │
+│  - Admin-only submit_result                             │
+│  - Emits on-chain events for indexers                   │
+└────────────────────┬────────────────────────────────────┘
+                     ▲
+┌─────────────────────────────────────────────────────────┐
+│            Off-chain Oracle Service                     │
+│  - Polls Lichess / Chess.com APIs                       │
+│  - Verifies game result against match game_id           │
+│  - Signs and submits result to Oracle Contract          │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## Match Lifecycle
@@ -47,56 +44,53 @@ create_match()
      ▼
   Pending ──── deposit(player1) ──── deposit(player2) ──── Active
      │                                                        │
-     └── cancel_match() ──── Cancelled          submit_result()
-                                                              │
-                                                         Completed
+  cancel_match()                                    submit_result()
+     │                                                        │
+  Cancelled                                              Completed
 ```
 
-1. **Pending** — Match created, awaiting both deposits. Either player can cancel.
-2. **Active** — Both players have deposited. Game is in progress. Cannot be cancelled.
-3. **Completed** — Oracle submitted result, payout executed.
-4. **Cancelled** — Cancelled before activation; any deposits refunded.
+State transitions are enforced on-chain. Deposits are rejected for any state other than `Pending`. Results are rejected for any state other than `Active`.
 
-## Contracts
+## Contract Storage
 
-### Escrow Contract (`contracts/escrow`)
+### Escrow Contract
 
-The core contract. Responsibilities:
+| Key | Storage | Description |
+|-----|---------|-------------|
+| `DataKey::Oracle` | Instance | Trusted oracle address |
+| `DataKey::Admin` | Instance | Admin address for pause/unpause |
+| `DataKey::MatchCount` | Instance | Monotonic match ID counter |
+| `DataKey::Paused` | Instance | Circuit-breaker flag |
+| `DataKey::Match(id)` | Persistent | Full `Match` struct per match |
 
-- `initialize(oracle, admin)` — Sets the trusted oracle address and admin. One-time call.
-- `create_match(player1, player2, stake_amount, token, game_id, platform)` — Creates a match record in persistent storage.
-- `deposit(match_id, player)` — Transfers `stake_amount` tokens from the player to the contract. Transitions to `Active` when both players have deposited.
-- `submit_result(match_id, winner, caller)` — Oracle-only. Executes payout to winner (or splits on draw) and marks match `Completed`.
-- `cancel_match(match_id, caller)` — Either player can cancel a `Pending` match. Refunds any deposits.
-- `pause()` / `unpause()` — Admin-only emergency controls.
+### Oracle Contract
 
-### Oracle Contract (`contracts/oracle`)
+| Key | Storage | Description |
+|-----|---------|-------------|
+| `DataKey::Admin` | Instance | Oracle service address |
+| `DataKey::Result(id)` | Persistent | `ResultEntry` per match |
 
-A lightweight result registry. Responsibilities:
+## Token Flow
 
-- `initialize(admin)` — Sets the oracle service address. One-time call.
-- `submit_result(match_id, game_id, result)` — Admin-only. Stores a `ResultEntry` keyed by `match_id`.
-- `get_result(match_id)` — Returns the stored `ResultEntry`.
-- `has_result(match_id)` — Returns whether a result exists.
+All token transfers use the Stellar Asset Contract (SAC) interface via `soroban_sdk::token::Client`.
 
-## Storage
+- On `deposit`: player → escrow contract address (`stake_amount`)
+- On `submit_result` (win): escrow → winner (`stake_amount * 2`)
+- On `submit_result` (draw): escrow → player1 (`stake_amount`), escrow → player2 (`stake_amount`)
+- On `cancel_match`: escrow → each depositor (`stake_amount` each)
 
-Both contracts use Soroban **persistent storage** for match and result data, with TTL extended to `MATCH_TTL_LEDGERS` (~30 days at 5s/ledger) on every write. Instance storage holds contract-level config (oracle address, admin, match count, paused flag).
+## Storage TTL
 
-## Token Support
-
-The escrow contract is token-agnostic — it accepts any SEP-41 compatible token address. v1.0 targets XLM; v1.1 adds USDC.
+All persistent entries are written with a TTL of `518_400` ledgers (~30 days at 5 s/ledger). The TTL is refreshed on every state-changing write to prevent expiry during an active match.
 
 ## Events
 
-All state transitions emit on-chain events for off-chain indexers and frontends:
-
-| Contract | Event topic          | Data                              |
-|----------|----------------------|-----------------------------------|
-| Escrow   | `match / created`    | `(match_id, player1, player2, stake_amount)` |
-| Escrow   | `match / activated`  | `match_id`                        |
-| Escrow   | `match / completed`  | `(match_id, winner)`              |
-| Escrow   | `match / cancelled`  | `match_id`                        |
-| Escrow   | `admin / paused`     | `()`                              |
-| Escrow   | `admin / unpaused`   | `()`                              |
-| Oracle   | `oracle / result`    | `(match_id, result)`              |
+| Contract | Topics | Data |
+|----------|--------|------|
+| Escrow | `("match", "created")` | `(match_id, player1, player2, stake_amount)` |
+| Escrow | `("match", "activated")` | `match_id` |
+| Escrow | `("match", "completed")` | `(match_id, winner)` |
+| Escrow | `("match", "cancelled")` | `match_id` |
+| Escrow | `("admin", "paused")` | `()` |
+| Escrow | `("admin", "unpaused")` | `()` |
+| Oracle | `("oracle", "result")` | `(match_id, result)` |

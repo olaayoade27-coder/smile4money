@@ -1,91 +1,104 @@
 # Oracle Design
 
-The oracle is the bridge between off-chain chess game results and the on-chain escrow contract. This document describes how it works, its trust model, and its failure modes.
-
 ## Overview
 
-smile4money uses a two-layer oracle design:
+The oracle is the bridge between off-chain chess platforms (Lichess, Chess.com) and the on-chain escrow contract. It is the only address authorised to call `submit_result` on the escrow contract.
 
-1. **Oracle Contract** (`contracts/oracle`) — An on-chain result registry. Stores verified results keyed by `match_id`. Admin-gated so only the trusted oracle service can write.
-2. **Off-chain Oracle Service** — A backend process that polls Lichess and Chess.com APIs, verifies game outcomes, and submits results to both the Oracle Contract and the Escrow Contract.
+## Components
 
-## Data Flow
+### Oracle Contract (`contracts/oracle`)
+
+An on-chain Soroban contract that:
+
+- Stores verified results keyed by `match_id`
+- Accepts result submissions only from the registered admin (the oracle service key)
+- Prevents duplicate submissions for the same `match_id`
+- Emits an on-chain event for every accepted result
+
+### Off-chain Oracle Service
+
+A backend process that:
+
+1. Monitors the escrow contract for `("match", "activated")` events
+2. Extracts `game_id` and `platform` from the match record
+3. Polls the appropriate chess platform API until the game is finished
+4. Submits the result to the Oracle Contract using the admin key
+5. Calls `submit_result` on the Escrow Contract to trigger payout
+
+## Result Submission Flow
 
 ```
-Chess.com / Lichess API
-         │
-         │  GET /game/{game_id}
-         ▼
-  Off-chain Oracle Service
-         │
-         ├── submit_result(match_id, game_id, result)  ──▶  Oracle Contract
-         │                                                   (stores result on-chain)
-         │
-         └── submit_result(match_id, winner, caller)   ──▶  Escrow Contract
-                                                            (executes payout)
+Chess platform API
+       │  game finished
+       ▼
+Oracle Service
+  1. fetch game result
+  2. map to MatchResult enum
+  3. oracle_contract.submit_result(match_id, game_id, result)
+  4. escrow_contract.submit_result(match_id, winner, oracle_address)
+       │
+       ▼
+Escrow Contract
+  - verifies caller == stored oracle address
+  - verifies match state == Active
+  - executes token payout
+  - sets state = Completed
+  - emits ("match", "completed") event
 ```
+
+## Result Types
+
+| Oracle `MatchResult` | Escrow `Winner` | Payout |
+|----------------------|-----------------|--------|
+| `Player1Wins` | `Player1` | Full pot to player1 |
+| `Player2Wins` | `Player2` | Full pot to player2 |
+| `Draw` | `Draw` | `stake_amount` returned to each player |
+
+## Supported Platforms
+
+| Platform | Enum Variant | API |
+|----------|-------------|-----|
+| Lichess | `Platform::Lichess` | `https://lichess.org/api/game/{id}` |
+| Chess.com | `Platform::ChessDotCom` | `https://api.chess.com/pub/game/{id}` |
 
 ## Oracle Contract API
 
-### `initialize(admin: Address)`
-
-Sets the oracle service address. Can only be called once — subsequent calls panic.
-
-### `submit_result(match_id: u64, game_id: String, result: MatchResult) -> Result<(), Error>`
-
-Stores a verified result on-chain. Requires admin auth. Rejects duplicate submissions (`Error::AlreadySubmitted`). Emits an `oracle / result` event.
-
-`MatchResult` variants:
-- `Player1Wins`
-- `Player2Wins`
-- `Draw`
-
-### `get_result(match_id: u64) -> Result<ResultEntry, Error>`
-
-Returns the stored `ResultEntry` for a match, or `Error::ResultNotFound`.
-
-### `has_result(match_id: u64) -> bool`
-
-Returns `true` if a result has been submitted for the given match ID.
-
-## Off-chain Oracle Service
-
-The oracle service is responsible for:
-
-1. **Watching** — Polling Lichess (`/api/game/{id}`) and Chess.com (`/pub/player/{user}/games/{yyyy}/{mm}`) for game completion.
-2. **Verifying** — Confirming the game is finished and mapping the result to the correct `match_id` stored in the escrow contract.
-3. **Submitting** — Calling `submit_result` on the Oracle Contract (for auditability) and `submit_result` on the Escrow Contract (to trigger payout).
-
-### Environment Variables
-
-```env
-LICHESS_API_TOKEN=<your-lichess-api-token>
-CHESSDOTCOM_API_KEY=<your-chessdotcom-api-key>
-CONTRACT_ORACLE=<oracle-contract-id>
-CONTRACT_ESCROW=<escrow-contract-id>
-STELLAR_RPC_URL=https://soroban-testnet.stellar.org
+```
+initialize(admin: Address)
+submit_result(match_id: u64, game_id: String, result: MatchResult) -> Result<(), Error>
+get_result(match_id: u64) -> Result<ResultEntry, Error>
+has_result(match_id: u64) -> bool
 ```
 
-## Trust Model
+### Errors
 
-The oracle is the only address authorized to call `submit_result` on the Escrow Contract. This means:
+| Error | Code | Meaning |
+|-------|------|---------|
+| `Unauthorized` | 1 | Caller is not the admin |
+| `AlreadySubmitted` | 2 | Result already exists for this match |
+| `ResultNotFound` | 3 | No result stored for this match |
+| `AlreadyInitialized` | 4 | Contract has already been initialized |
 
-- If the oracle service is compromised, it can submit incorrect results and redirect payouts.
-- The oracle address can be rotated via `update_oracle(new_oracle)` on the Escrow Contract (admin-only).
-- All oracle submissions are recorded on-chain and emit events, making any manipulation auditable.
+## Security Properties
 
-## Failure Modes
+- The oracle admin key is the only address that can submit results; any other caller is rejected with `Error::Unauthorized`.
+- Once a result is submitted it is immutable — `AlreadySubmitted` prevents overwriting.
+- The escrow contract independently verifies the caller against its stored oracle address before executing any payout.
+- The oracle contract and escrow contract are separate deployments; a compromised oracle contract does not grant direct access to escrow funds.
 
-| Scenario | Behaviour |
-|---|---|
-| Oracle service goes offline | Match stays `Active` indefinitely. Players can wait or the admin can intervene. |
-| Oracle submits wrong `match_id` | Escrow rejects if match is not `Active`. Oracle contract records the result regardless. |
-| Duplicate result submission | Oracle contract returns `Error::AlreadySubmitted` and rejects. |
-| Oracle key compromised | Admin rotates oracle address via `update_oracle`. Existing completed matches are unaffected. |
+## Configuration
 
-## Platforms Supported
+Set the oracle admin key in `.env`:
 
-| Platform | API | `Platform` enum value |
-|---|---|---|
-| Lichess | `https://lichess.org/api/game/{id}` | `Platform::Lichess` |
-| Chess.com | `https://api.chess.com/pub/...` | `Platform::ChessDotCom` |
+```env
+ORACLE_ADMIN_SECRET=<stellar-secret-key>
+```
+
+The oracle address is registered in the escrow contract at deploy time:
+
+```bash
+stellar contract invoke --id $CONTRACT_ESCROW \
+  -- initialize \
+  --oracle $ORACLE_ADDRESS \
+  --admin $ADMIN_ADDRESS
+```
