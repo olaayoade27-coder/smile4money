@@ -1,4 +1,4 @@
-## Fix: initialize can be called multiple times, overwriting oracle address
+## Issue #1: Fix: initialize can be called multiple times, overwriting oracle address
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -15,7 +15,7 @@
 
 ---
 
-## Fix: oracle initialize can be called multiple times, overwriting admin
+## Issue #2: Fix: oracle initialize can be called multiple times, overwriting admin
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -32,7 +32,7 @@
 
 ---
 
-## Fix: create_match allows zero stake_amount
+## Issue #3: Fix: create_match allows zero stake_amount
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -49,7 +49,7 @@
 
 ---
 
-## Fix: cancel_match only allows player1 to cancel — player2 has no recourse
+## Issue #4: Fix: cancel_match only allows player1 to cancel — player2 has no recourse
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -66,7 +66,7 @@ Only `player1` (the match creator) can cancel a pending match. If player1 abando
 
 ---
 
-## Fix: submit_result does not validate winner against match players
+## Issue #5: Fix: submit_result does not validate winner against match players
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -83,7 +83,7 @@ The oracle submits a `Winner` enum (`Player1`, `Player2`, `Draw`) but there is n
 
 ---
 
-## Fix: get_escrow_balance uses boolean arithmetic that silently truncates
+## Issue #6: Fix: get_escrow_balance uses boolean arithmetic that silently truncates
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -100,7 +100,7 @@ The oracle submits a `Winner` enum (`Player1`, `Player2`, `Draw`) but there is n
 
 ---
 
-## Fix: deposit does not check match is not already Cancelled or Completed
+## Issue #7: Fix: deposit does not check match is not already Cancelled or Completed
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -117,7 +117,7 @@ The oracle submits a `Winner` enum (`Player1`, `Player2`, `Draw`) but there is n
 
 ---
 
-## Fix: oracle submit_result has no link back to escrow contract — results are siloed
+## Issue #8: Fix: oracle submit_result has no link back to escrow contract — results are siloed
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -134,7 +134,7 @@ The oracle contract stores results independently but the escrow contract's `subm
 
 ---
 
-## Fix: MatchCount can overflow u64 with no guard
+## Issue #9: Fix: MatchCount can overflow u64 with no guard
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -151,7 +151,7 @@ The oracle contract stores results independently but the escrow contract's `subm
 
 ---
 
-## Fix: cancel_match does not require player2 auth when player2 has deposited
+## Issue #10: Fix: cancel_match does not require player2 auth when player2 has deposited
 **Labels:** `bug`, `security`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -168,7 +168,7 @@ The oracle contract stores results independently but the escrow contract's `subm
 
 ---
 
-## Fix: Persistent storage entries have no TTL extension — data can expire
+## Issue #11: Fix: Persistent storage entries have no TTL extension — data can expire
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -185,7 +185,7 @@ All `Match` and `Result` entries are written to persistent storage with no TTL e
 
 ---
 
-## Fix: submit_result in escrow does not emit an event
+## Issue #12: Fix: submit_result in escrow does not emit an event
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -203,7 +203,7 @@ Payouts triggered by `submit_result` are not observable off-chain without pollin
 
 ---
 
-## Fix: create_match does not emit an event
+## Issue #13: Fix: create_match does not emit an event
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -220,7 +220,7 @@ Match creation is not observable off-chain. Frontends must poll storage to disco
 
 ---
 
-## Fix: deposit does not emit an event
+## Issue #14: Fix: deposit does not emit an event
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -237,7 +237,7 @@ Player deposits are not observable off-chain. Frontends cannot notify the oppone
 
 ---
 
-## Fix: cancel_match does not emit an event
+## Issue #15: Fix: cancel_match does not emit an event
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -254,7 +254,7 @@ Match cancellations are silent on-chain. Players and frontends cannot detect can
 
 ---
 
-## Fix: oracle submit_result does not emit an event
+## Issue #16: Fix: oracle submit_result does not emit an event
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -271,7 +271,7 @@ Oracle result submissions are not observable off-chain. The escrow contract and 
 
 ---
 
-## Fix: no mechanism to update oracle address post-deploy
+## Issue #17: Fix: no mechanism to update oracle address post-deploy
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -288,7 +288,7 @@ The oracle address is set once at `initialize` and cannot be changed. If the ora
 
 ---
 
-## Fix: no admin role in escrow contract — no emergency controls
+## Issue #18: Fix: no admin role in escrow contract — no emergency controls
 **Labels:** `bug`, `security`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -306,7 +306,7 @@ The escrow contract has no admin address. There is no way to pause the contract,
 
 ---
 
-## Fix: create_match allows player1 == player2 (self-match)
+## Issue #19: Fix: create_match allows player1 == player2 (self-match)
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -323,7 +323,7 @@ There is no check that `player1 != player2`. A single address can create a match
 
 ---
 
-## Fix: game_id is not validated for uniqueness — same game can be used in multiple matches
+## Issue #20: Fix: game_id is not validated for uniqueness — same game can be used in multiple matches
 **Labels:** `bug`
 **Body:**
 **Category:** Smart Contract - Bug
@@ -340,7 +340,7 @@ The same `game_id` can be used to create multiple matches. An attacker could cre
 
 ---
 
-## Add Test: deposit by non-player address should return Unauthorized
+## Issue #21: Add Test: deposit by non-player address should return Unauthorized
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -357,7 +357,7 @@ Verify that calling `deposit` with an address that is neither `player1` nor `pla
 
 ---
 
-## Add Test: submit_result on Pending match (not yet Active) should return InvalidState
+## Issue #22: Add Test: submit_result on Pending match (not yet Active) should return InvalidState
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -374,7 +374,7 @@ Verify that the oracle cannot submit a result for a match that has not yet reach
 
 ---
 
-## Add Test: submit_result on already Completed match should return InvalidState
+## Issue #23: Add Test: submit_result on already Completed match should return InvalidState
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -391,7 +391,7 @@ Verify that calling `submit_result` twice on the same match panics or returns `I
 
 ---
 
-## Add Test: cancel_match on Active match should return InvalidState
+## Issue #24: Add Test: cancel_match on Active match should return InvalidState
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -408,7 +408,7 @@ Verify that a match cannot be cancelled once both players have deposited and it 
 
 ---
 
-## Add Test: get_match on non-existent match_id should return MatchNotFound
+## Issue #25: Add Test: get_match on non-existent match_id should return MatchNotFound
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -424,7 +424,7 @@ Verify that `get_match` returns `Error::MatchNotFound` for an ID that was never 
 
 ---
 
-## Add Test: is_funded returns false after only one player deposits
+## Issue #26: Add Test: is_funded returns false after only one player deposits
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -441,7 +441,7 @@ Verify that `is_funded` returns `false` when only one of the two players has dep
 
 ---
 
-## Add Test: get_escrow_balance reflects correct amount at each deposit stage
+## Issue #27: Add Test: get_escrow_balance reflects correct amount at each deposit stage
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -458,7 +458,7 @@ Verify `get_escrow_balance` returns `0`, `stake_amount`, and `2 * stake_amount` 
 
 ---
 
-## Add Test: Draw payout returns exact stake_amount to each player
+## Issue #28: Add Test: Draw payout returns exact stake_amount to each player
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -476,7 +476,7 @@ Verify that in a draw, each player receives exactly their original `stake_amount
 
 ---
 
-## Add Test: Non-oracle address calling submit_result should return Unauthorized
+## Issue #29: Add Test: Non-oracle address calling submit_result should return Unauthorized
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -492,7 +492,7 @@ Verify that only the registered oracle address can call `submit_result` on the e
 
 ---
 
-## Add Test: oracle get_result on non-existent match_id should return ResultNotFound
+## Issue #30: Add Test: oracle get_result on non-existent match_id should return ResultNotFound
 **Labels:** `testing`
 **Body:**
 **Category:** Smart Contract - Testing
@@ -508,7 +508,7 @@ Verify that `OracleContract::get_result` returns `Error::ResultNotFound` for a m
 
 ---
 
-## Add GitHub Actions CI — Run cargo test and cargo clippy on Every PR
+## Issue #31: Add GitHub Actions CI — Run cargo test and cargo clippy on Every PR
 **Labels:** `infrastructure`
 **Body:**
 **Category:** Infrastructure - CI/CD
