@@ -104,28 +104,51 @@ stellar keys generate deployer --network testnet
 
 ## 🎓 Smart Contract API
 
-### Match Management
+### Escrow Contract
+
+**Initialization**
 
 ```
-create_match(stake_amount, token, game_id, platform) -> u64
+initialize(oracle: Address, admin: Address)
+```
+
+**Match Management**
+
+```
+create_match(player1, player2, stake_amount, token, game_id, platform) -> u64
 get_match(match_id) -> Match
-cancel_match(match_id)
+cancel_match(match_id, caller)
 ```
 
-### Escrow
+**Escrow**
 
 ```
-deposit(match_id)
+deposit(match_id, player)
 get_escrow_balance(match_id) -> i128
 is_funded(match_id) -> bool
 ```
 
-### Oracle & Payouts
+**Oracle & Payouts**
 
 ```
-submit_result(match_id, winner)
-verify_result(match_id) -> bool
-execute_payout(match_id)
+submit_result(match_id, game_id, winner, caller)
+```
+
+**Admin**
+
+```
+pause()
+unpause()
+update_oracle(new_oracle: Address)
+```
+
+### Oracle Contract
+
+```
+initialize(admin: Address)
+submit_result(match_id, game_id, result)
+get_result(match_id) -> ResultEntry
+has_result(match_id) -> bool
 ```
 
 ## 🧪 Testing

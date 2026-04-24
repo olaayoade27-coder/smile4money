@@ -57,6 +57,22 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Update the trusted oracle address — admin only.
+    pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Oracle, &new_oracle);
+        env.events().publish(
+            (Symbol::new(&env, "admin"), symbol_short!("oracle")),
+            new_oracle,
+        );
+        Ok(())
+    }
+
     /// Create a new match. Both players must call `deposit` before the game starts.
     pub fn create_match(
         env: Env,
@@ -80,8 +96,19 @@ impl EscrowContract {
         if stake_amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        if player1 == player2 {
+            return Err(Error::InvalidPlayers);
+        }
         if game_id.len() > MAX_GAME_ID_LEN {
             return Err(Error::InvalidGameId);
+        }
+        // Reject duplicate game IDs
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::GameId(game_id.clone()))
+        {
+            return Err(Error::AlreadyExists);
         }
 
         let id: u64 = env
@@ -90,17 +117,13 @@ impl EscrowContract {
             .get(&DataKey::MatchCount)
             .unwrap_or(0);
 
-        if env.storage().persistent().has(&DataKey::Match(id)) {
-            return Err(Error::AlreadyExists);
-        }
-
         let m = Match {
             id,
-            player1,
-            player2,
+            player1: player1.clone(),
+            player2: player2.clone(),
             stake_amount,
             token,
-            game_id,
+            game_id: game_id.clone(),
             platform,
             state: MatchState::Pending,
             player1_deposited: false,
@@ -114,13 +137,19 @@ impl EscrowContract {
             MATCH_TTL_LEDGERS,
             MATCH_TTL_LEDGERS,
         );
+
+        // Mark game_id as used
+        env.storage()
+            .persistent()
+            .set(&DataKey::GameId(game_id), &true);
+
         // Guard against u64 overflow in release mode where wrapping would occur silently
         let next_id = id.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().instance().set(&DataKey::MatchCount, &next_id);
 
         env.events().publish(
             (Symbol::new(&env, "match"), symbol_short!("created")),
-            (id, m.player1, m.player2, stake_amount),
+            (id, player1, player2, stake_amount),
         );
 
         Ok(id)
@@ -179,6 +208,11 @@ impl EscrowContract {
             );
         }
 
+        env.events().publish(
+            (Symbol::new(&env, "match"), symbol_short!("deposit")),
+            (match_id, player),
+        );
+
         env.storage()
             .persistent()
             .set(&DataKey::Match(match_id), &m);
@@ -191,9 +225,11 @@ impl EscrowContract {
     }
 
     /// Oracle submits the verified match result and triggers payout.
+    /// `game_id` must match the game_id stored in the match to prevent cross-match attacks.
     pub fn submit_result(
         env: Env,
         match_id: u64,
+        game_id: String,
         winner: Winner,
         caller: Address,
     ) -> Result<(), Error> {
@@ -227,6 +263,10 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
+        if game_id != m.game_id {
+            return Err(Error::GameIdMismatch);
+        }
+
         if !m.player1_deposited || !m.player2_deposited {
             return Err(Error::NotFunded);
         }
@@ -253,8 +293,10 @@ impl EscrowContract {
             MATCH_TTL_LEDGERS,
         );
 
-        let topics = (Symbol::new(&env, "match"), symbol_short!("completed"));
-        env.events().publish(topics, (match_id, winner));
+        env.events().publish(
+            (Symbol::new(&env, "match"), symbol_short!("completed")),
+            (match_id, winner),
+        );
 
         Ok(())
     }
@@ -272,7 +314,6 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        // Either player1 or player2 can cancel a pending match
         let is_p1 = caller == m.player1;
         let is_p2 = caller == m.player2;
 
@@ -337,6 +378,7 @@ impl EscrowContract {
         if m.state == MatchState::Completed || m.state == MatchState::Cancelled {
             return Ok(0);
         }
+        // Count how many players have deposited and multiply by stake
         let deposited = m.player1_deposited as i128 + m.player2_deposited as i128;
         Ok(deposited * m.stake_amount)
     }
