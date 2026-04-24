@@ -14,10 +14,10 @@ pub enum Error {
     ContractPaused = 9,
     InvalidAmount = 10,
     InvalidGameId = 11,
-    /// player1 and player2 are the same address
+    /// player1 == player2 in create_match
     InvalidPlayers = 12,
-    /// game_id has already been used in another match
-    DuplicateGameId = 13,
-    /// oracle submitted a result whose game_id does not match the stored match game_id
-    GameIdMismatch = 14,
+    /// oracle submitted result for wrong game_id
+    GameIdMismatch = 13,
+    /// game_id already used in another match
+    DuplicateGameId = 14,
 }
