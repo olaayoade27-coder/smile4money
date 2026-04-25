@@ -524,3 +524,20 @@ There is no CI pipeline. Add a GitHub Actions workflow that runs `cargo test` an
 - Run `cargo clippy -- -D warnings`
 - Cache cargo dependencies for faster runs
 - Add status badge to README
+
+---
+
+## Issue #33: Test: Test case #33 - Placeholder
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** Medium
+**Estimated Time:** 30 minutes
+
+**Description:**
+Define and implement test case #33 details.
+
+**Tasks:**
+- Add exact scenario for test case #33
+- Implement the corresponding test
+- Verify assertions and expected error/success behavior
