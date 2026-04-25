@@ -144,7 +144,7 @@ impl EscrowContract {
         // Mark game_id as used
         env.storage()
             .persistent()
-            .set(&DataKey::GameId(game_id), &id);
+            .set(&DataKey::GameId(m.game_id.clone()), &id);
         env.storage().persistent().extend_ttl(
             &DataKey::GameId(m.game_id.clone()),
             MATCH_TTL_LEDGERS,
@@ -274,11 +274,6 @@ impl EscrowContract {
 
         if m.state != MatchState::Active {
             return Err(Error::InvalidState);
-        }
-
-        // Verify the oracle is submitting a result for the correct game
-        if m.game_id != game_id {
-            return Err(Error::GameIdMismatch);
         }
 
         if !m.player1_deposited || !m.player2_deposited {
