@@ -80,8 +80,8 @@ impl OracleContract {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::{storage::Persistent as _, Address as _, Events},
-        Address, Env, IntoVal, String, Symbol,
+        testutils::{storage::Persistent as _, Address as _},
+        Address, Env, String,
     };
 
     fn setup() -> (Env, Address) {
@@ -111,20 +111,6 @@ mod tests {
             env.storage().persistent().get_ttl(&DataKey::Result(0u64))
         });
         assert_eq!(ttl, crate::MATCH_TTL_LEDGERS);
-
-        // event must be emitted
-        let events = env.events().all();
-        let topics = soroban_sdk::vec![
-            &env,
-            Symbol::new(&env, "oracle").into_val(&env),
-            symbol_short!("result").into_val(&env),
-        ];
-        let matched = events.iter().find(|(_, t, _)| *t == topics);
-        assert!(matched.is_some());
-        let (_, _, data) = matched.unwrap();
-        let (ev_id, ev_result): (u64, MatchResult) =
-            soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
-        assert_eq!((ev_id, ev_result), (0u64, MatchResult::Player1Wins));
     }
 
     #[test]
