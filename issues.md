@@ -549,7 +549,7 @@ Define and implement test case #33 details.
 **Body:**
 **Category:** Smart Contract - Testing
 **Priority:** Medium
-**Estimated Time:** 30 minutes
+**Estimated Time:** 10 minutes
 
 **Description:**
 Define and implement test case #34 details.
