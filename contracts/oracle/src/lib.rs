@@ -16,11 +16,12 @@ pub struct OracleContract;
 #[contractimpl]
 impl OracleContract {
     /// Initialize with a trusted admin (the off-chain oracle service).
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("Contract already initialized");
+            return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        Ok(())
     }
 
     /// Admin submits a verified match result on-chain.
@@ -90,7 +91,7 @@ mod tests {
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
         (env, contract_id)
     }
 
@@ -127,7 +128,7 @@ mod tests {
         let non_admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
 
         use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
         env.set_auths(&[MockAuth {
@@ -144,15 +145,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Contract already initialized")]
     fn test_double_initialize_fails() {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
+        assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
     }
 
     #[test]
