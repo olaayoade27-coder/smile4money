@@ -135,6 +135,57 @@ mod tests {
     }
 
     #[test]
+    fn test_non_admin_cannot_submit_result() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let contract_id = env.register(OracleContract, ());
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        env.set_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "submit_result",
+                args: (0u64, String::from_str(&env, "game"), MatchResult::Player1Wins).into_val(&env),
+                sub_invokes: &[],
+            },
+        }.into()]);
+
+        assert!(client.try_submit_result(&0u64, &String::from_str(&env, "game"), &MatchResult::Player1Wins).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract already initialized")]
+    fn test_double_initialize_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(OracleContract, ());
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+        client.initialize(&admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #1)")]
+    fn test_duplicate_submit_fails() {
+        let (env, contract_id) = setup();
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
+        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
+    }
+
+    #[test]
+    fn test_has_result_false_for_non_existent() {
+        let (env, contract_id) = setup();
+        let client = OracleContractClient::new(&env, &contract_id);
+        assert!(!client.has_result(&999u64));
+    }
+
+    #[test]
     #[should_panic]
     fn test_duplicate_submit_fails() {
         let (env, contract_id) = setup();
