@@ -229,11 +229,6 @@ impl EscrowContract {
             MATCH_TTL_LEDGERS,
         );
 
-        env.events().publish(
-            (Symbol::new(&env, "match"), symbol_short!("deposit")),
-            (match_id, player),
-        );
-
         Ok(())
     }
 
@@ -245,7 +240,6 @@ impl EscrowContract {
         game_id: String,
         winner: Winner,
         caller: Address,
-        game_id: String,
     ) -> Result<(), Error> {
         if env
             .storage()
@@ -366,23 +360,6 @@ impl EscrowContract {
             match_id,
         );
 
-        Ok(())
-    }
-
-    /// Rotate the trusted oracle address — admin only.
-    /// Use this if the oracle service is compromised or needs to be replaced.
-    pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::Unauthorized)?;
-        admin.require_auth();
-        env.storage().instance().set(&DataKey::Oracle, &new_oracle);
-        env.events().publish(
-            (Symbol::new(&env, "admin"), symbol_short!("oracle")),
-            new_oracle,
-        );
         Ok(())
     }
 
