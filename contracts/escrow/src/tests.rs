@@ -538,7 +538,7 @@ fn test_non_admin_cannot_update_oracle() {
         invoke: &MockAuthInvoke {
             contract: &contract_id,
             fn_name: "update_oracle",
-            args: (new_oracle,).into_val(&env),
+            args: (new_oracle.clone(),).into_val(&env),
             sub_invokes: &[],
         },
     }
@@ -677,4 +677,137 @@ fn test_cancel_match_emits_event() {
     let (_, _, data) = matched.unwrap();
     let ev_id: u64 = TryFromVal::try_from_val(&env, &data).unwrap();
     assert_eq!(ev_id, id);
+}
+
+// ─── Test Case #71: End-to-end transaction payout flow ───────────────────────
+//
+// Validates the full lifecycle of a payout "smile":
+//   1. Happy-path: balance updates + completed event emitted
+//   2. Edge case: insufficient funds → deposit panics
+//   3. Edge case: idempotency → double submit_result is rejected
+
+/// TC-71-A: Happy-path payout flow.
+///
+/// Setup:  player1 (sender) and player2 (recipient) each start with 1000 units.
+/// Action: both stake 200; oracle declares player2 the winner.
+/// Assert:
+///   - sender (player1) balance == 800  (staked 200, received nothing)
+///   - recipient (player2) balance == 1200 (staked 200, received full pot 400 → net +200)
+///   - match state == Completed
+///   - "match / completed" event emitted with correct match_id and Winner::Player2
+#[test]
+fn test_tc71_payout_flow_balance_and_event() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token);
+
+    let id = client.create_match(
+        &player1, &player2, &200, &token,
+        &String::from_str(&env, "tc71_game"), &Platform::Lichess,
+    );
+
+    client.deposit(&id, &player1);
+    client.deposit(&id, &player2);
+
+    // Trigger the "smile" (payout)
+    client.submit_result(
+        &id,
+        &String::from_str(&env, "tc71_game"),
+        &Winner::Player2,
+        &oracle,
+    );
+
+    // Balance checks
+    assert_eq!(token_client.balance(&player1), 800,  "sender balance must be 800 after staking 200");
+    assert_eq!(token_client.balance(&player2), 1200, "recipient balance must be 1200 (net +200 received)");
+
+    // Status check
+    assert_eq!(client.get_match(&id).state, MatchState::Completed);
+    assert_eq!(client.get_escrow_balance(&id), 0);
+
+    // Event check: "match / completed" must carry (match_id, Winner::Player2)
+    let events = env.events().all();
+    let topics = vec![
+        &env,
+        Symbol::new(&env, "match").into_val(&env),
+        soroban_sdk::symbol_short!("completed").into_val(&env),
+    ];
+    let matched = events.iter().find(|(_, t, _)| *t == topics);
+    assert!(matched.is_some(), "PayoutSuccessful (match/completed) event must be emitted");
+
+    let (_, _, data) = matched.unwrap();
+    let (ev_id, ev_winner): (u64, Winner) = TryFromVal::try_from_val(&env, &data).unwrap();
+    assert_eq!(ev_id, id,              "event must carry the correct match_id");
+    assert_eq!(ev_winner, Winner::Player2, "event must identify the correct winner");
+}
+
+/// TC-71-B: Insufficient funds — deposit panics when player balance < stake.
+///
+/// A player minted with only 50 units cannot deposit a 200-unit stake.
+/// The token transfer inside `deposit` will panic (no balance check in contract layer).
+#[test]
+#[should_panic]
+fn test_tc71_insufficient_funds_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let rich_player = Address::generate(&env);
+    let broke_player = Address::generate(&env);
+
+    let token_id = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_addr = token_id.address();
+    let asset_client = StellarAssetClient::new(&env, &token_addr);
+    asset_client.mint(&rich_player, &1000);
+    asset_client.mint(&broke_player, &50); // insufficient for a 200-unit stake
+
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+    client.initialize(&oracle, &admin);
+
+    let id = client.create_match(
+        &rich_player, &broke_player, &200, &token_addr,
+        &String::from_str(&env, "tc71_broke"), &Platform::Lichess,
+    );
+
+    client.deposit(&id, &rich_player);
+    client.deposit(&id, &broke_player); // must panic — balance 50 < stake 200
+}
+
+/// TC-71-C: Idempotency — submitting the same payout result twice is rejected.
+///
+/// After the first submit_result the match is Completed; a second call must
+/// return Error::InvalidState, ensuring no double-debit occurs.
+#[test]
+fn test_tc71_idempotent_payout() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &200, &token,
+        &String::from_str(&env, "tc71_idem"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    client.deposit(&id, &player2);
+
+    // First submit — succeeds
+    client.submit_result(
+        &id,
+        &String::from_str(&env, "tc71_idem"),
+        &Winner::Player1,
+        &oracle,
+    );
+
+    // Second submit — must be rejected with InvalidState
+    assert_eq!(
+        client.try_submit_result(
+            &id,
+            &String::from_str(&env, "tc71_idem"),
+            &Winner::Player1,
+            &oracle,
+        ),
+        Err(Ok(Error::InvalidState)),
+        "duplicate payout trigger must be rejected with InvalidState"
+    );
 }
