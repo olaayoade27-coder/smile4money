@@ -289,14 +289,14 @@ pub fn submit_result(
 - `Error::ContractPaused`: Contract is paused
 - `Error::Unauthorized`: Caller is not the oracle
 - `Error::MatchNotFound`: Invalid match_id
-- `Error::GameIdMismatch`: Provided game_id does not match the match record
+- `Error::GameIdMismatch`: Provided game_id does not match the match's stored game_id
 - `Error::InvalidState`: Match is not Active
 - `Error::NotFunded`: Both players have not deposited
 
 **Example:**
 ```rust
 // Oracle submits Player1 win
-escrow.submit_result(&match_id, &String::from_str(&env, "lichess_game123"), &Winner::Player1, &oracle_addr);
+escrow.submit_result(&match_id, &String::from_str(&env, "lichess_abc123"), &Winner::Player1, &oracle_addr);
 ```
 
 ---

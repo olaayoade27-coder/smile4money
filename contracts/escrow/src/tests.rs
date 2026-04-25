@@ -94,6 +94,26 @@ fn test_payout_winner() {
 }
 
 #[test]
+fn test_payout_winner_player2() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "game_player2"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    client.deposit(&id, &player2);
+    client.submit_result(&id, &String::from_str(&env, "game_player2"), &Winner::Player2, &oracle);
+
+    assert_eq!(token_client.balance(&player1), 900);
+    assert_eq!(token_client.balance(&player2), 1100);
+    assert_eq!(client.get_match(&id).state, MatchState::Completed);
+    assert_eq!(client.get_escrow_balance(&id), 0);
+}
+
+#[test]
 fn test_draw_refund() {
     let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
@@ -498,6 +518,33 @@ fn test_non_admin_cannot_pause() {
     .into()]);
 
     assert!(client.try_pause().is_err());
+}
+
+#[test]
+fn test_non_admin_cannot_update_oracle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let new_oracle = Address::generate(&env);
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+    client.initialize(&oracle, &admin);
+
+    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+    env.set_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "update_oracle",
+            args: (new_oracle,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }
+    .into()]);
+
+    assert!(client.try_update_oracle(&new_oracle).is_err());
 }
 
 #[test]
