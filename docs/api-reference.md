@@ -77,6 +77,34 @@ pub fn unpause(env: Env) -> Result<(), Error>
 
 ---
 
+#### `update_oracle`
+
+Rotate the trusted oracle address.
+
+**Signature:**
+```rust
+pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error>
+```
+
+**Parameters:**
+- `new_oracle`: Address of the replacement oracle
+
+**Behavior:**
+- Replaces the stored oracle address with `new_oracle`
+- Emits "admin.oracle" event with the new oracle address
+
+**Authorization:** Requires admin signature
+
+**Errors:**
+- `Error::Unauthorized`: Caller is not the admin
+
+**Example:**
+```rust
+escrow.update_oracle(&new_oracle_addr);
+```
+
+---
+
 ### Match Management
 
 #### `create_match`
@@ -120,7 +148,9 @@ pub fn create_match(
 **Errors:**
 - `Error::ContractPaused`: Contract is paused
 - `Error::InvalidAmount`: stake_amount ≤ 0
+- `Error::InvalidPlayers`: player1 and player2 are the same address
 - `Error::InvalidGameId`: game_id exceeds 64 bytes
+- `Error::DuplicateGameId`: game_id is already used in another match
 - `Error::AlreadyExists`: Match ID collision (extremely rare)
 - `Error::Overflow`: Match counter overflow (practically impossible)
 
@@ -228,6 +258,7 @@ Submit verified match result and execute payout.
 pub fn submit_result(
     env: Env,
     match_id: u64,
+    game_id: String,
     winner: Winner,
     caller: Address,
 ) -> Result<(), Error>
@@ -235,11 +266,13 @@ pub fn submit_result(
 
 **Parameters:**
 - `match_id`: ID of the match to finalize
+- `game_id`: Chess platform game identifier — must match the `game_id` stored in the match
 - `winner`: Result enum (Player1, Player2, or Draw)
 - `caller`: Address submitting result (must be oracle)
 
 **Behavior:**
 - Validates caller is the trusted oracle
+- Validates `game_id` matches the match's stored `game_id` (prevents cross-match result injection)
 - Validates match is Active
 - Validates both players deposited
 - Executes payout based on winner:
@@ -256,13 +289,14 @@ pub fn submit_result(
 - `Error::ContractPaused`: Contract is paused
 - `Error::Unauthorized`: Caller is not the oracle
 - `Error::MatchNotFound`: Invalid match_id
+- `Error::GameIdMismatch`: Provided game_id does not match the match record
 - `Error::InvalidState`: Match is not Active
 - `Error::NotFunded`: Both players have not deposited
 
 **Example:**
 ```rust
 // Oracle submits Player1 win
-escrow.submit_result(&match_id, &Winner::Player1, &oracle_addr);
+escrow.submit_result(&match_id, &String::from_str(&env, "lichess_game123"), &Winner::Player1, &oracle_addr);
 ```
 
 ---
@@ -597,6 +631,9 @@ pub enum Error {
     ContractPaused = 9,     // Contract is paused
     InvalidAmount = 10,     // Stake amount is invalid (≤ 0)
     InvalidGameId = 11,     // Game ID exceeds max length
+    InvalidPlayers = 12,    // player1 == player2 in create_match
+    GameIdMismatch = 13,    // Oracle submitted result for wrong game_id
+    DuplicateGameId = 14,   // game_id already used in another match
 }
 ```
 
@@ -635,6 +672,15 @@ Emitted when both players deposit and match becomes Active.
 
 ---
 
+#### match.deposit
+Emitted on every individual player deposit.
+
+**Topics:** `("match", "deposit")`
+
+**Data:** `(match_id: u64, player: Address)`
+
+---
+
 #### match.completed
 Emitted when result is submitted and payout executed.
 
@@ -668,6 +714,15 @@ Emitted when contract is unpaused.
 **Topics:** `("admin", "unpaused")`
 
 **Data:** `()`
+
+---
+
+#### admin.oracle
+Emitted when the oracle address is rotated via `update_oracle`.
+
+**Topics:** `("admin", "oracle")`
+
+**Data:** `new_oracle: Address`
 
 ---
 
@@ -735,7 +790,7 @@ oracle.submit_result(
 );
 
 // 7. Oracle triggers payout
-escrow.submit_result(&match_id, &Winner::Player1, &oracle_addr);
+escrow.submit_result(&match_id, &String::from_str(&env, "lichess_game123"), &Winner::Player1, &oracle_addr);
 
 // 8. Verify completion
 let match_data = escrow.get_match(&match_id);
