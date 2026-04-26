@@ -647,3 +647,20 @@ Verify that calling initialize twice on the same contract instance panics with "
 - Deploy contract and call initialize
 - Attempt to call initialize again
 - Assert panic with message "Contract already initialized"
+
+---
+
+## Issue #72: Add Test: submit_result on already Cancelled match should return InvalidState
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** High
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that calling `submit_result` on a match that has been cancelled returns `InvalidState`. Once a match is `Cancelled`, no result should be accepted.
+
+**Tasks:**
+- Create match, cancel it via `cancel_match`
+- Call `submit_result` on the cancelled match
+- Assert `Error::InvalidState`
