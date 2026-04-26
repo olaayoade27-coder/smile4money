@@ -10,6 +10,9 @@ use types::{DataKey, MatchResult, ResultEntry};
 /// ~30 days at 5s/ledger.
 const MATCH_TTL_LEDGERS: u32 = 518_400;
 
+/// Maximum allowed byte length for a game_id string.
+const MAX_GAME_ID_LEN: u32 = 64;
+
 #[contract]
 pub struct OracleContract;
 
@@ -36,6 +39,10 @@ impl OracleContract {
             .get(&DataKey::Admin)
             .ok_or(Error::Unauthorized)?;
         admin.require_auth();
+
+        if game_id.len() > MAX_GAME_ID_LEN {
+            return Err(Error::InvalidGameId);
+        }
 
         if env.storage().persistent().has(&DataKey::Result(match_id)) {
             return Err(Error::AlreadySubmitted);
@@ -169,5 +176,14 @@ mod tests {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
         assert!(!client.has_result(&999u64));
+    }
+
+    #[test]
+    fn test_submit_result_rejects_oversized_game_id() {
+        let (env, contract_id) = setup();
+        let client = OracleContractClient::new(&env, &contract_id);
+        
+        let oversized_game_id = String::from_str(&env, &"x".repeat(65));
+        assert!(client.try_submit_result(&0u64, &oversized_game_id, &MatchResult::Player1Wins).is_err());
     }
 }
