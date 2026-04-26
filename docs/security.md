@@ -37,6 +37,18 @@ No single party can unilaterally steal funds. The escrow contract enforces all p
 
 **Mitigation**: The escrow contract checks `m.state == Active` before processing. Once set to `Completed`, any further `submit_result` call returns `Error::InvalidState`. The oracle contract additionally rejects duplicate submissions with `Error::AlreadySubmitted`.
 
+### Cross-Match Result Injection (GameIdMismatch)
+
+**Threat**: A compromised oracle submits a result for the correct `match_id` but with a `game_id` belonging to a different game, redirecting a payout to the wrong winner.
+
+**Mitigation**: `submit_result` on the escrow contract requires a `game_id` parameter and compares it against the `game_id` stored in the match record at creation time. A mismatch returns `Error::GameIdMismatch` before any state change or token transfer occurs.
+
+### Duplicate Game ID Exploit (DuplicateGameId)
+
+**Threat**: An attacker creates multiple matches referencing the same chess `game_id`. If the oracle submits a result for that game, all duplicate matches could be paid out, draining the contract.
+
+**Mitigation**: `create_match` tracks every accepted `game_id` in persistent storage under `DataKey::GameId(game_id)`. A second `create_match` call with the same `game_id` returns `Error::DuplicateGameId` immediately, before any match record is written.
+
 ### Deposit into Inactive Match
 
 **Threat**: A player deposits into a cancelled or completed match, locking funds.

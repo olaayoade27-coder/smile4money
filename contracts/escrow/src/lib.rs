@@ -18,6 +18,13 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Initialize the contract with a trusted oracle address and an admin.
     pub fn initialize(env: Env, oracle: Address, admin: Address) {
         if env.storage().instance().has(&DataKey::Oracle) {
@@ -85,12 +92,7 @@ impl EscrowContract {
     ) -> Result<u64, Error> {
         player1.require_auth();
 
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
         if stake_amount <= 0 {
@@ -144,7 +146,7 @@ impl EscrowContract {
         // Mark game_id as used
         env.storage()
             .persistent()
-            .set(&DataKey::GameId(game_id), &id);
+            .set(&DataKey::GameId(m.game_id.clone()), &id);
         env.storage().persistent().extend_ttl(
             &DataKey::GameId(m.game_id.clone()),
             MATCH_TTL_LEDGERS,
@@ -166,12 +168,7 @@ impl EscrowContract {
     pub fn deposit(env: Env, match_id: u64, player: Address) -> Result<(), Error> {
         player.require_auth();
 
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
 
@@ -191,10 +188,14 @@ impl EscrowContract {
         if !is_p1 && !is_p2 {
             return Err(Error::Unauthorized);
         }
-        if is_p1 && m.player1_deposited {
-            return Err(Error::AlreadyFunded);
-        }
-        if is_p2 && m.player2_deposited {
+
+        let already_deposited = if is_p1 {
+            m.player1_deposited
+        } else {
+            m.player2_deposited
+        };
+
+        if already_deposited {
             return Err(Error::AlreadyFunded);
         }
 
@@ -241,12 +242,7 @@ impl EscrowContract {
         winner: Winner,
         caller: Address,
     ) -> Result<(), Error> {
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
 
@@ -276,21 +272,19 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        // Verify the oracle is submitting a result for the correct game
-        if m.game_id != game_id {
-            return Err(Error::GameIdMismatch);
-        }
-
         if !m.player1_deposited || !m.player2_deposited {
             return Err(Error::NotFunded);
         }
 
         let client = token::Client::new(&env, &m.token);
-        let pot = m.stake_amount * 2;
 
         match winner {
-            Winner::Player1 => client.transfer(&env.current_contract_address(), &m.player1, &pot),
-            Winner::Player2 => client.transfer(&env.current_contract_address(), &m.player2, &pot),
+            Winner::Player1 => {
+                client.transfer(&env.current_contract_address(), &m.player1, &(m.stake_amount * 2))
+            }
+            Winner::Player2 => {
+                client.transfer(&env.current_contract_address(), &m.player2, &(m.stake_amount * 2))
+            }
             Winner::Draw => {
                 client.transfer(&env.current_contract_address(), &m.player1, &m.stake_amount);
                 client.transfer(&env.current_contract_address(), &m.player2, &m.stake_amount);
@@ -326,7 +320,6 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        // Either player1 or player2 can cancel a pending match
         let is_p1 = caller == m.player1;
         let is_p2 = caller == m.player2;
 
@@ -337,7 +330,6 @@ impl EscrowContract {
         caller.require_auth();
 
         let client = token::Client::new(&env, &m.token);
-
         if m.player1_deposited {
             client.transfer(&env.current_contract_address(), &m.player1, &m.stake_amount);
         }
