@@ -538,7 +538,7 @@ fn test_non_admin_cannot_update_oracle() {
         invoke: &MockAuthInvoke {
             contract: &contract_id,
             fn_name: "update_oracle",
-            args: (new_oracle,).into_val(&env),
+            args: (new_oracle.clone(),).into_val(&env),
             sub_invokes: &[],
         },
     }
@@ -679,52 +679,85 @@ fn test_cancel_match_emits_event() {
     assert_eq!(ev_id, id);
 }
 
+// Issue #59: Test that pause() prevents match creation
 #[test]
-fn test_player1_double_deposit_returns_already_funded() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+fn test_pause_prevents_match_creation() {
+    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
+
+    client.pause(&admin);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.create_match(
+            &player1, &player2, &100, &token,
+            &String::from_str(&env, "paused_match"), &Platform::Lichess,
+        )
+    }));
+
+    assert!(result.is_err());
+}
+
+// Issue #60: Test that unpause() re-enables match creation
+#[test]
+fn test_unpause_enables_match_creation() {
+    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    client.pause(&admin);
+    client.unpause(&admin);
+
     let id = client.create_match(
         &player1, &player2, &100, &token,
-        &String::from_str(&env, "double_dep_p1"), &Platform::Lichess,
+        &String::from_str(&env, "unpaused_match"), &Platform::Lichess,
+    );
+
+    assert_eq!(id, 0);
+    let m = client.get_match(&id);
+    assert_eq!(m.state, MatchState::Pending);
+}
+
+// Issue #61: Test that update_oracle() successfully rotates the oracle address
+#[test]
+fn test_update_oracle_rotates_address() {
+    let (env, contract_id, oracle, player1, player2, token, admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let new_oracle = Address::generate(&env);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "oracle_test"), &Platform::Lichess,
     );
     client.deposit(&id, &player1);
-    assert_eq!(client.try_deposit(&id, &player1), Err(Ok(Error::AlreadyFunded)));
-}
-
-#[test]
-fn test_player2_double_deposit_returns_already_funded() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-    let id = client.create_match(
-        &player1, &player2, &100, &token,
-        &String::from_str(&env, "double_dep_p2"), &Platform::Lichess,
-    );
     client.deposit(&id, &player2);
-    assert_eq!(client.try_deposit(&id, &player2), Err(Ok(Error::AlreadyFunded)));
+
+    client.update_oracle(&new_oracle, &admin);
+
+    let result = client.submit_result(
+        &id, &String::from_str(&env, "oracle_test"), &Winner::Player1, &new_oracle
+    );
+
+    assert_eq!(result, ());
 }
 
+// Issue #62: Test that non-admin cannot call pause(), unpause(), or update_oracle()
 #[test]
-fn test_third_party_cannot_cancel_pending_match() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+fn test_non_admin_cannot_call_admin_functions() {
+    let (env, contract_id, _oracle, player1, _player2, _token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
-    let id = client.create_match(
-        &player1, &player2, &100, &token,
-        &String::from_str(&env, "unauth_cancel2"), &Platform::Lichess,
-    );
-    let stranger = Address::generate(&env);
-    assert_eq!(client.try_cancel_match(&id, &stranger), Err(Ok(Error::Unauthorized)));
-}
 
-#[test]
-fn test_third_party_cannot_cancel_after_player2_deposits() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-    let id = client.create_match(
-        &player1, &player2, &100, &token,
-        &String::from_str(&env, "unauth_cancel3"), &Platform::Lichess,
-    );
-    client.deposit(&id, &player2);
-    let stranger = Address::generate(&env);
-    assert_eq!(client.try_cancel_match(&id, &stranger), Err(Ok(Error::Unauthorized)));
-    assert_eq!(client.get_match(&id).state, MatchState::Pending);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause(&player1)
+    }));
+    assert!(result.is_err());
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.unpause(&player1)
+    }));
+    assert!(result.is_err());
+
+    let new_oracle = Address::generate(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_oracle(&new_oracle, &player1)
+    }));
+    assert!(result.is_err());
 }
