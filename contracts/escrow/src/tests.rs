@@ -538,7 +538,7 @@ fn test_non_admin_cannot_update_oracle() {
         invoke: &MockAuthInvoke {
             contract: &contract_id,
             fn_name: "update_oracle",
-            args: (new_oracle,).into_val(&env),
+            args: (new_oracle.clone(),).into_val(&env),
             sub_invokes: &[],
         },
     }

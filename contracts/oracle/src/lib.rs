@@ -90,7 +90,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         testutils::{storage::Persistent as _, Address as _},
-        Address, Env, String,
+        Address, Env, IntoVal, String,
     };
 
     fn setup() -> (Env, Address) {
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #1)")]
+    #[should_panic(expected = "Error(Contract, #2)")]
     fn test_duplicate_submit_fails() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
