@@ -77,6 +77,34 @@ pub fn unpause(env: Env) -> Result<(), Error>
 
 ---
 
+#### `update_oracle`
+
+Rotate the trusted oracle address.
+
+**Signature:**
+```rust
+pub fn update_oracle(env: Env, new_oracle: Address) -> Result<(), Error>
+```
+
+**Parameters:**
+- `new_oracle`: Address of the replacement oracle
+
+**Behavior:**
+- Replaces the stored oracle address with `new_oracle`
+- Emits "admin.oracle" event with the new oracle address
+
+**Authorization:** Requires admin signature
+
+**Errors:**
+- `Error::Unauthorized`: Caller is not the admin
+
+**Example:**
+```rust
+escrow.update_oracle(&new_oracle_addr);
+```
+
+---
+
 ### Match Management
 
 #### `create_match`
@@ -644,6 +672,15 @@ Emitted when both players deposit and match becomes Active.
 
 ---
 
+#### match.deposit
+Emitted on every individual player deposit.
+
+**Topics:** `("match", "deposit")`
+
+**Data:** `(match_id: u64, player: Address)`
+
+---
+
 #### match.completed
 Emitted when result is submitted and payout executed.
 
@@ -677,6 +714,15 @@ Emitted when contract is unpaused.
 **Topics:** `("admin", "unpaused")`
 
 **Data:** `()`
+
+---
+
+#### admin.oracle
+Emitted when the oracle address is rotated via `update_oracle`.
+
+**Topics:** `("admin", "oracle")`
+
+**Data:** `new_oracle: Address`
 
 ---
 
