@@ -678,3 +678,140 @@ fn test_cancel_match_emits_event() {
     let ev_id: u64 = TryFromVal::try_from_val(&env, &data).unwrap();
     assert_eq!(ev_id, id);
 }
+
+// Issue #55: Multiple matches can be created and tracked independently
+#[test]
+fn test_multiple_matches_independent() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token);
+
+    // Create 3 matches with different players and game_ids
+    let id1 = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "game1"), &Platform::Lichess,
+    );
+    let id2 = client.create_match(
+        &player1, &player2, &50, &token,
+        &String::from_str(&env, "game2"), &Platform::ChessDotCom,
+    );
+    let id3 = client.create_match(
+        &player1, &player2, &200, &token,
+        &String::from_str(&env, "game3"), &Platform::Lichess,
+    );
+
+    // Verify each match has unique ID
+    assert_eq!(id1, 0);
+    assert_eq!(id2, 1);
+    assert_eq!(id3, 2);
+
+    // Deposit and complete match 1
+    client.deposit(&id1, &player1);
+    client.deposit(&id1, &player2);
+    client.submit_result(&id1, &String::from_str(&env, "game1"), &Winner::Player1, &oracle);
+    assert_eq!(client.get_match(&id1).state, MatchState::Completed);
+
+    // Deposit and complete match 2 with different winner
+    client.deposit(&id2, &player1);
+    client.deposit(&id2, &player2);
+    client.submit_result(&id2, &String::from_str(&env, "game2"), &Winner::Player2, &oracle);
+    assert_eq!(client.get_match(&id2).state, MatchState::Completed);
+
+    // Deposit and complete match 3 with draw
+    client.deposit(&id3, &player1);
+    client.deposit(&id3, &player2);
+    client.submit_result(&id3, &String::from_str(&env, "game3"), &Winner::Draw, &oracle);
+    assert_eq!(client.get_match(&id3).state, MatchState::Completed);
+
+    // Verify final balances reflect all payouts
+    // player1: 1000 - 100 - 50 - 200 + 200 (match1) + 0 (match2) + 200 (match3) = 1050
+    // player2: 1000 - 100 - 50 - 200 + 0 (match1) + 100 (match2) + 200 (match3) = 950
+    assert_eq!(token_client.balance(&player1), 1050);
+    assert_eq!(token_client.balance(&player2), 950);
+}
+
+// Issue #56: Paused contract blocks all operations
+#[test]
+fn test_paused_contract_blocks_operations() {
+    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    // Pause the contract
+    client.pause(&admin);
+
+    // Attempt create_match, should fail
+    let result = client.try_create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "blocked"), &Platform::Lichess,
+    );
+    assert!(matches!(result, Err(Ok(Error::ContractPaused))));
+
+    // Create a match before pausing for deposit test
+    client.unpause(&admin);
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "test"), &Platform::Lichess,
+    );
+
+    // Pause again
+    client.pause(&admin);
+
+    // Attempt deposit, should fail
+    let result = client.try_deposit(&id, &player1);
+    assert!(matches!(result, Err(Ok(Error::ContractPaused))));
+
+    // Unpause and verify operations work
+    client.unpause(&admin);
+    client.deposit(&id, &player1);
+    assert!(client.get_match(&id).player1_deposited);
+}
+
+// Issue #57: Oracle address can be rotated by admin
+#[test]
+fn test_oracle_rotation() {
+    let (env, contract_id, oracle, player1, player2, token, admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let new_oracle = Address::generate(&env);
+
+    // Create and fund a match
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "rotation_test"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    client.deposit(&id, &player2);
+
+    // Rotate oracle
+    client.update_oracle(&new_oracle, &admin);
+
+    // Old oracle should be rejected
+    let result = client.try_submit_result(
+        &id, &String::from_str(&env, "rotation_test"), &Winner::Player1, &oracle
+    );
+    assert!(matches!(result, Err(Ok(Error::Unauthorized))));
+
+    // New oracle should succeed
+    client.submit_result(&id, &String::from_str(&env, "rotation_test"), &Winner::Player1, &new_oracle);
+    assert_eq!(client.get_match(&id).state, MatchState::Completed);
+}
+
+// Issue #58: Contract initialization is idempotent — second initialize panics
+#[test]
+#[should_panic(expected = "Contract already initialized")]
+fn test_double_initialize_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let oracle2 = Address::generate(&env);
+
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    // First initialize should succeed
+    client.initialize(&oracle, &admin);
+
+    // Second initialize should panic
+    client.initialize(&oracle2, &admin);
+}

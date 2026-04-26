@@ -575,3 +575,75 @@ Define and implement test case #35 details.
 - Add exact scenario for test case #35
 - Implement the corresponding test
 - Verify assertions and expected error/success behavior
+
+---
+
+## Issue #55: Add Test: Multiple matches can be created and tracked independently
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** Medium
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that multiple matches can be created sequentially and each maintains independent state, deposits, and payouts.
+
+**Tasks:**
+- Create 3 matches with different players and game_ids
+- Verify each match has a unique ID (0, 1, 2)
+- Deposit and complete each match independently
+- Assert each match's state and payout are correct
+
+---
+
+## Issue #56: Add Test: Paused contract blocks all operations
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** High
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that when the contract is paused by admin, create_match, deposit, and submit_result all return ContractPaused error.
+
+**Tasks:**
+- Call pause() as admin
+- Attempt create_match, assert Error::ContractPaused
+- Attempt deposit, assert Error::ContractPaused
+- Attempt submit_result, assert Error::ContractPaused
+- Call unpause() and verify operations work again
+
+---
+
+## Issue #57: Add Test: Oracle address can be rotated by admin
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** High
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that admin can update the oracle address and the new oracle can submit results while the old oracle is rejected.
+
+**Tasks:**
+- Create and fund a match
+- Call update_oracle with a new oracle address
+- Attempt submit_result with old oracle, assert Error::Unauthorized
+- Call submit_result with new oracle, assert success
+
+---
+
+## Issue #58: Add Test: Contract initialization is idempotent — second initialize panics
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** High
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that calling initialize twice on the same contract instance panics with "Contract already initialized".
+
+**Tasks:**
+- Deploy contract and call initialize
+- Attempt to call initialize again
+- Assert panic with message "Contract already initialized"
