@@ -678,3 +678,53 @@ fn test_cancel_match_emits_event() {
     let ev_id: u64 = TryFromVal::try_from_val(&env, &data).unwrap();
     assert_eq!(ev_id, id);
 }
+
+#[test]
+fn test_player1_double_deposit_returns_already_funded() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "double_dep_p1"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    assert_eq!(client.try_deposit(&id, &player1), Err(Ok(Error::AlreadyFunded)));
+}
+
+#[test]
+fn test_player2_double_deposit_returns_already_funded() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "double_dep_p2"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player2);
+    assert_eq!(client.try_deposit(&id, &player2), Err(Ok(Error::AlreadyFunded)));
+}
+
+#[test]
+fn test_third_party_cannot_cancel_pending_match() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "unauth_cancel2"), &Platform::Lichess,
+    );
+    let stranger = Address::generate(&env);
+    assert_eq!(client.try_cancel_match(&id, &stranger), Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_third_party_cannot_cancel_after_player2_deposits() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "unauth_cancel3"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player2);
+    let stranger = Address::generate(&env);
+    assert_eq!(client.try_cancel_match(&id, &stranger), Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.get_match(&id).state, MatchState::Pending);
+}
