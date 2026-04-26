@@ -18,6 +18,13 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     /// Initialize the contract with a trusted oracle address and an admin.
     pub fn initialize(env: Env, oracle: Address, admin: Address) {
         if env.storage().instance().has(&DataKey::Oracle) {
@@ -85,12 +92,7 @@ impl EscrowContract {
     ) -> Result<u64, Error> {
         player1.require_auth();
 
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
         if stake_amount <= 0 {
@@ -166,12 +168,7 @@ impl EscrowContract {
     pub fn deposit(env: Env, match_id: u64, player: Address) -> Result<(), Error> {
         player.require_auth();
 
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
 
@@ -241,12 +238,7 @@ impl EscrowContract {
         winner: Winner,
         caller: Address,
     ) -> Result<(), Error> {
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-        {
+        if Self::is_paused(&env) {
             return Err(Error::ContractPaused);
         }
 

@@ -4,7 +4,7 @@ mod errors;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, String, Symbol};
 use types::{DataKey, MatchResult, ResultEntry};
 
 /// ~30 days at 5s/ledger.
@@ -21,6 +21,8 @@ impl OracleContract {
             panic!("Contract already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.events()
+            .publish((Symbol::new(&env, "oracle"), symbol_short!("init")), admin);
     }
 
     /// Admin submits a verified match result on-chain.
@@ -170,4 +172,22 @@ mod tests {
         let client = OracleContractClient::new(&env, &contract_id);
         assert!(!client.has_result(&999u64));
     }
-}
+
+    #[test]
+    fn test_initialize_emits_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(OracleContract, ());
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        let events = env.events().all();
+        let topics = vec![
+            &env,
+            Symbol::new(&env, "oracle").into_val(&env),
+            soroban_sdk::symbol_short!("init").into_val(&env),
+        ];
+        let matched = events.iter().find(|(_, t, _)| *t == topics);
+        assert!(matched.is_some());
+    }
