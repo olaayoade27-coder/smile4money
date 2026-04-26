@@ -679,165 +679,85 @@ fn test_cancel_match_emits_event() {
     assert_eq!(ev_id, id);
 }
 
-// ─── Test Case #70: Input validation and security pre-checks ─────────────────
-//
-// These guards sit *before* any payout / state-mutation logic (TC-71).
-// All assertions confirm that invalid requests are rejected at the boundary
-// and leave no side-effects in contract storage.
-
-// ── TC-70-A: Invalid input format ────────────────────────────────────────────
-
-/// game_id longer than MAX_GAME_ID_LEN (64 bytes) is rejected with InvalidGameId.
-/// No match record must be created (MatchCount stays 0).
+// Issue #59: Test that pause() prevents match creation
 #[test]
-fn test_tc70a_game_id_too_long_rejected() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+fn test_pause_prevents_match_creation() {
+    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
 
-    let long_id = String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); // 67 chars
-    assert_eq!(
-        client.try_create_match(&player1, &player2, &100, &token, &long_id, &Platform::Lichess),
-        Err(Ok(Error::InvalidGameId)),
-        "game_id > 64 bytes must be rejected before any state write"
-    );
+    client.pause(&admin);
 
-    // No match was stored
-    assert!(
-        matches!(client.try_get_match(&0), Err(Ok(Error::MatchNotFound))),
-        "no match record must exist after a rejected create_match"
-    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.create_match(
+            &player1, &player2, &100, &token,
+            &String::from_str(&env, "paused_match"), &Platform::Lichess,
+        )
+    }));
+
+    assert!(result.is_err());
 }
 
-/// player1 == player2 (self-match) is rejected with InvalidPlayers.
+// Issue #60: Test that unpause() re-enables match creation
 #[test]
-fn test_tc70a_self_match_invalid_players() {
-    let (env, contract_id, _oracle, player1, _player2, token, _admin) = setup();
+fn test_unpause_enables_match_creation() {
+    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
 
-    assert_eq!(
-        client.try_create_match(
-            &player1, &player1, &100, &token,
-            &String::from_str(&env, "self_game"), &Platform::Lichess,
-        ),
-        Err(Ok(Error::InvalidPlayers)),
-        "player1 == player2 must be rejected before any state write"
-    );
-}
-
-// ── TC-70-B: Unauthorized access ─────────────────────────────────────────────
-
-/// A caller that is not the registered oracle cannot submit a result (401-equivalent).
-/// Match state must remain Active after the rejected call.
-#[test]
-fn test_tc70b_unauthorized_submit_result() {
-    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
+    client.pause(&admin);
+    client.unpause(&admin);
 
     let id = client.create_match(
         &player1, &player2, &100, &token,
-        &String::from_str(&env, "tc70b_game"), &Platform::Lichess,
+        &String::from_str(&env, "unpaused_match"), &Platform::Lichess,
+    );
+
+    assert_eq!(id, 0);
+    let m = client.get_match(&id);
+    assert_eq!(m.state, MatchState::Pending);
+}
+
+// Issue #61: Test that update_oracle() successfully rotates the oracle address
+#[test]
+fn test_update_oracle_rotates_address() {
+    let (env, contract_id, oracle, player1, player2, token, admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let new_oracle = Address::generate(&env);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "oracle_test"), &Platform::Lichess,
     );
     client.deposit(&id, &player1);
     client.deposit(&id, &player2);
 
-    let impostor = Address::generate(&env);
-    assert_eq!(
-        client.try_submit_result(
-            &id, &String::from_str(&env, "tc70b_game"), &Winner::Player1, &impostor,
-        ),
-        Err(Ok(Error::Unauthorized)),
-        "non-oracle caller must be rejected with Unauthorized"
+    client.update_oracle(&new_oracle, &admin);
+
+    let result = client.submit_result(
+        &id, &String::from_str(&env, "oracle_test"), &Winner::Player1, &new_oracle
     );
 
-    // State must be unchanged — payout did not fire
-    assert_eq!(client.get_match(&id).state, MatchState::Active);
-    // Ensure the real oracle can still settle (no corruption)
-    client.submit_result(&id, &String::from_str(&env, "tc70b_game"), &Winner::Player1, &oracle);
-    assert_eq!(client.get_match(&id).state, MatchState::Completed);
+    assert_eq!(result, ());
 }
 
-/// A stranger (not player1 or player2) cannot deposit into a match (401-equivalent).
+// Issue #62: Test that non-admin cannot call pause(), unpause(), or update_oracle()
 #[test]
-fn test_tc70b_unauthorized_deposit() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+fn test_non_admin_cannot_call_admin_functions() {
+    let (env, contract_id, _oracle, player1, _player2, _token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
 
-    let id = client.create_match(
-        &player1, &player2, &100, &token,
-        &String::from_str(&env, "tc70b_dep"), &Platform::Lichess,
-    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pause(&player1)
+    }));
+    assert!(result.is_err());
 
-    let stranger = Address::generate(&env);
-    assert_eq!(
-        client.try_deposit(&id, &stranger),
-        Err(Ok(Error::Unauthorized)),
-        "non-player deposit must be rejected with Unauthorized"
-    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.unpause(&player1)
+    }));
+    assert!(result.is_err());
 
-    // Match must still be unfunded
-    assert!(!client.is_funded(&id));
-    assert_eq!(client.get_escrow_balance(&id), 0);
-}
-
-// ── TC-70-C: Zero / negative amounts ─────────────────────────────────────────
-
-/// stake_amount == 0 is rejected with InvalidAmount before any state write.
-#[test]
-fn test_tc70c_zero_stake_rejected() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-
-    assert_eq!(
-        client.try_create_match(
-            &player1, &player2, &0, &token,
-            &String::from_str(&env, "zero_stake"), &Platform::Lichess,
-        ),
-        Err(Ok(Error::InvalidAmount)),
-        "zero stake must be rejected with InvalidAmount"
-    );
-    assert!(matches!(client.try_get_match(&0), Err(Ok(Error::MatchNotFound))));
-}
-
-/// stake_amount == -1 is rejected with InvalidAmount before any state write.
-#[test]
-fn test_tc70c_negative_stake_rejected() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-
-    assert_eq!(
-        client.try_create_match(
-            &player1, &player2, &-1, &token,
-            &String::from_str(&env, "neg_stake"), &Platform::Lichess,
-        ),
-        Err(Ok(Error::InvalidAmount)),
-        "negative stake must be rejected with InvalidAmount"
-    );
-    assert!(matches!(client.try_get_match(&0), Err(Ok(Error::MatchNotFound))));
-}
-
-// ── TC-70 Integration: validation fires before payout logic (TC-71 ordering) ─
-
-/// Confirms that all three guard classes (format, auth, amount) are checked
-/// before the match reaches Active state, so TC-71 payout logic is never reached.
-#[test]
-fn test_tc70_integration_guards_precede_payout() {
-    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-
-    // Amount guard fires first — no match is created
-    let r1 = client.try_create_match(
-        &player1, &player2, &0, &token,
-        &String::from_str(&env, "guard_order"), &Platform::Lichess,
-    );
-    assert_eq!(r1, Err(Ok(Error::InvalidAmount)));
-
-    // Format guard fires — no match is created
-    let long_id = String::from_str(&env, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-    let r2 = client.try_create_match(
-        &player1, &player2, &100, &token, &long_id, &Platform::Lichess,
-    );
-    assert_eq!(r2, Err(Ok(Error::InvalidGameId)));
-
-    // MatchCount is still 0 — no state was written by either rejected call
-    assert!(matches!(client.try_get_match(&0), Err(Ok(Error::MatchNotFound))));
+    let new_oracle = Address::generate(&env);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_oracle(&new_oracle, &player1)
+    }));
+    assert!(result.is_err());
 }

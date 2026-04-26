@@ -4,11 +4,14 @@ mod errors;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, String, Symbol};
 use types::{DataKey, MatchResult, ResultEntry};
 
 /// ~30 days at 5s/ledger.
 const MATCH_TTL_LEDGERS: u32 = 518_400;
+
+/// Maximum allowed byte length for a game_id string.
+const MAX_GAME_ID_LEN: u32 = 64;
 
 #[contract]
 pub struct OracleContract;
@@ -16,11 +19,13 @@ pub struct OracleContract;
 #[contractimpl]
 impl OracleContract {
     /// Initialize with a trusted admin (the off-chain oracle service).
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("Contract already initialized");
+            return Err(Error::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.events()
+            .publish((Symbol::new(&env, "oracle"), symbol_short!("init")), admin);
     }
 
     /// Admin submits a verified match result on-chain.
@@ -36,6 +41,10 @@ impl OracleContract {
             .get(&DataKey::Admin)
             .ok_or(Error::Unauthorized)?;
         admin.require_auth();
+
+        if game_id.len() > MAX_GAME_ID_LEN {
+            return Err(Error::InvalidGameId);
+        }
 
         if env.storage().persistent().has(&DataKey::Result(match_id)) {
             return Err(Error::AlreadySubmitted);
@@ -81,7 +90,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         testutils::{storage::Persistent as _, Address as _},
-        Address, Env, String,
+        Address, Env, IntoVal, String,
     };
 
     fn setup() -> (Env, Address) {
@@ -90,7 +99,7 @@ mod tests {
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
         (env, contract_id)
     }
 
@@ -127,7 +136,7 @@ mod tests {
         let non_admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
 
         use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
         env.set_auths(&[MockAuth {
@@ -144,19 +153,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Contract already initialized")]
     fn test_double_initialize_fails() {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
-        client.initialize(&admin);
+        client.initialize(&admin).unwrap();
+        assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #1)")]
+    #[should_panic(expected = "Error(Contract, #2)")]
     fn test_duplicate_submit_fails() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
@@ -170,4 +178,22 @@ mod tests {
         let client = OracleContractClient::new(&env, &contract_id);
         assert!(!client.has_result(&999u64));
     }
-}
+
+    #[test]
+    fn test_initialize_emits_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(OracleContract, ());
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        let events = env.events().all();
+        let topics = vec![
+            &env,
+            Symbol::new(&env, "oracle").into_val(&env),
+            soroban_sdk::symbol_short!("init").into_val(&env),
+        ];
+        let matched = events.iter().find(|(_, t, _)| *t == topics);
+        assert!(matched.is_some());
+    }
