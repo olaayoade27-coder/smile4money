@@ -191,16 +191,8 @@ mod tests {
     fn test_duplicate_submit_fails() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
-        client.submit_result(
-            &0u64,
-            &String::from_str(&env, "abc123"),
-            &MatchResult::Draw,
-        );
-        client.submit_result(
-            &0u64,
-            &String::from_str(&env, "abc123"),
-            &MatchResult::Draw,
-        );
+        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
+        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
     }
 
     #[test]
