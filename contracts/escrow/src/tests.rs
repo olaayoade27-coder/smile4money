@@ -761,3 +761,21 @@ fn test_non_admin_cannot_call_admin_functions() {
     }));
     assert!(result.is_err());
 }
+
+// Issue #100: Test that submit_result on a cancelled match returns InvalidState
+#[test]
+fn test_submit_result_on_cancelled_match_fails() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "cancelled_result"), &Platform::Lichess,
+    );
+    client.cancel_match(&id, &player1);
+
+    assert_eq!(
+        client.try_submit_result(&id, &String::from_str(&env, "cancelled_result"), &Winner::Player1, &oracle),
+        Err(Ok(Error::InvalidState))
+    );
+}

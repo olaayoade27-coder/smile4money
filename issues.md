@@ -664,3 +664,18 @@ Verify that calling `submit_result` on a match that has been cancelled returns `
 - Create match, cancel it via `cancel_match`
 - Call `submit_result` on the cancelled match
 - Assert `Error::InvalidState`
+
+## Issue #100: Add Test: submit_result on Cancelled match should return InvalidState
+**Labels:** `testing`
+**Body:**
+**Category:** Smart Contract - Testing
+**Priority:** High
+**Estimated Time:** 30 minutes
+
+**Description:**
+Verify that calling `submit_result` on a match that has been cancelled returns `Error::InvalidState`. Once a match is `Cancelled`, no result should be accepted by the oracle.
+
+**Tasks:**
+- Create a match and cancel it via `cancel_match`
+- Call `submit_result` on the cancelled match
+- Assert `Error::InvalidState` is returned
