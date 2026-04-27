@@ -20,7 +20,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.88.0
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo
@@ -48,7 +48,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.88.0
           targets: wasm32-unknown-unknown
           components: clippy
 
@@ -74,7 +74,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.88.0
           components: rustfmt
 
       - name: Check formatting
@@ -89,7 +89,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.88.0
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo
