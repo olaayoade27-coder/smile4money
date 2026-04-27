@@ -198,3 +198,4 @@ mod tests {
         let matched = events.iter().find(|(_, t, _)| *t == topics);
         assert!(matched.is_some());
     }
+}

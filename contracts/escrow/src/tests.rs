@@ -789,3 +789,164 @@ fn test_non_admin_cannot_call_admin_functions() {
     .into()]);
     assert!(client.try_update_oracle(&new_oracle).is_err());
 }
+
+// Issue #55: Multiple matches can be created and tracked independently
+#[test]
+fn test_multiple_matches_independent() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token);
+
+    let player3 = Address::generate(&env);
+    let player4 = Address::generate(&env);
+    let asset_client = StellarAssetClient::new(&env, &token);
+    asset_client.mint(&player3, &1000);
+    asset_client.mint(&player4, &1000);
+
+    let id0 = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "game_m0"), &Platform::Lichess,
+    );
+    let id1 = client.create_match(
+        &player3, &player4, &200, &token,
+        &String::from_str(&env, "game_m1"), &Platform::Lichess,
+    );
+    let id2 = client.create_match(
+        &player1, &player3, &50, &token,
+        &String::from_str(&env, "game_m2"), &Platform::ChessDotCom,
+    );
+
+    assert_eq!(id0, 0);
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
+
+    // Fund and complete match 0 (player1 wins)
+    client.deposit(&id0, &player1);
+    client.deposit(&id0, &player2);
+    client.submit_result(&id0, &String::from_str(&env, "game_m0"), &Winner::Player1, &oracle);
+    assert_eq!(client.get_match(&id0).state, MatchState::Completed);
+    assert_eq!(token_client.balance(&player1), 1100); // 1000 - 100 + 200
+
+    // Fund and complete match 1 (draw)
+    client.deposit(&id1, &player3);
+    client.deposit(&id1, &player4);
+    client.submit_result(&id1, &String::from_str(&env, "game_m1"), &Winner::Draw, &oracle);
+    assert_eq!(client.get_match(&id1).state, MatchState::Completed);
+    assert_eq!(token_client.balance(&player3), 800); // 1000 - 200 + 200 (draw refund) - 50 (match 2 deposit)
+
+    // Cancel match 2 (only player1 deposited)
+    client.deposit(&id2, &player1);
+    client.cancel_match(&id2, &player1);
+    assert_eq!(client.get_match(&id2).state, MatchState::Cancelled);
+    // player1 net: started 1000, won 200 from match0, deposited 50 for match2, refunded 50 = 1100
+    assert_eq!(token_client.balance(&player1), 1100);
+}
+
+// Issue #56: Paused contract blocks deposit as well
+#[test]
+fn test_pause_blocks_deposit() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "pause_deposit"), &Platform::Lichess,
+    );
+
+    client.pause();
+
+    assert_eq!(
+        client.try_deposit(&id, &player1),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(
+        client.try_create_match(
+            &player1, &player2, &100, &token,
+            &String::from_str(&env, "pause_create"), &Platform::Lichess,
+        ),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(
+        client.try_submit_result(&id, &String::from_str(&env, "pause_deposit"), &Winner::Player1, &oracle),
+        Err(Ok(Error::ContractPaused))
+    );
+
+    // Unpause and verify deposit works again
+    client.unpause();
+    client.deposit(&id, &player1);
+    assert!(!client.is_funded(&id));
+}
+
+// Issue #72: submit_result on already Cancelled match should return InvalidState
+#[test]
+fn test_submit_result_on_cancelled_match_fails() {
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "cancelled_result"), &Platform::Lichess,
+    );
+    client.cancel_match(&id, &player1);
+    assert_eq!(client.get_match(&id).state, MatchState::Cancelled);
+
+    assert_eq!(
+        client.try_submit_result(
+            &id,
+            &String::from_str(&env, "cancelled_result"),
+            &Winner::Player1,
+            &oracle,
+        ),
+        Err(Ok(Error::InvalidState))
+    );
+}
+
+// Issue #33: Already-deposited player cannot deposit again
+#[test]
+fn test_double_deposit_same_player_fails() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "double_dep"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    assert_eq!(
+        client.try_deposit(&id, &player1),
+        Err(Ok(Error::AlreadyFunded))
+    );
+}
+
+// Issue #34: Negative stake_amount is rejected
+#[test]
+fn test_create_match_negative_stake_fails() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    assert_eq!(
+        client.try_create_match(
+            &player1, &player2, &-1, &token,
+            &String::from_str(&env, "neg_stake"), &Platform::Lichess,
+        ),
+        Err(Ok(Error::InvalidAmount))
+    );
+}
+
+// Issue #35: get_escrow_balance returns 0 after match is cancelled with partial deposit
+#[test]
+fn test_escrow_balance_zero_after_cancel() {
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+    let token_client = TokenClient::new(&env, &token);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "cancel_balance"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    assert_eq!(client.get_escrow_balance(&id), 100);
+
+    client.cancel_match(&id, &player1);
+    assert_eq!(client.get_escrow_balance(&id), 0);
+    assert_eq!(token_client.balance(&player1), 1000); // fully refunded
+}
