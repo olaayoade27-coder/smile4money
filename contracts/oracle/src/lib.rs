@@ -4,7 +4,7 @@ mod errors;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, String, Symbol};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
 use types::{DataKey, MatchResult, ResultEntry};
 
 /// ~30 days at 5s/ledger.

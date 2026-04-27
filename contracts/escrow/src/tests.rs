@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, Events},
@@ -956,7 +954,7 @@ fn test_unpause_enables_match_creation() {
 // Issue #61: Test that update_oracle() successfully rotates the oracle address
 #[test]
 fn test_update_oracle_rotates_address() {
-    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
     let new_oracle = Address::generate(&env);
 
@@ -973,14 +971,12 @@ fn test_update_oracle_rotates_address() {
 
     client.update_oracle(&new_oracle);
 
-    let result = client.submit_result(
+    client.submit_result(
         &id,
         &String::from_str(&env, "oracle_test"),
         &Winner::Player1,
         &new_oracle,
     );
-
-    assert_eq!(result, ());
 }
 
 // Issue #62: Test that non-admin cannot call pause(), unpause(), or update_oracle()
@@ -1099,7 +1095,7 @@ fn test_multiple_matches_independent() {
         &oracle,
     );
     assert_eq!(client.get_match(&id1).state, MatchState::Completed);
-    assert_eq!(token_client.balance(&player3), 800); // 1000 - 200 + 200 (draw refund) - 50 (match 2 deposit)
+    assert_eq!(token_client.balance(&player3), 1000); // 1000 - 200 + 200 (draw refund)
 
     // Cancel match 2 (only player1 deposited)
     client.deposit(&id2, &player1);
