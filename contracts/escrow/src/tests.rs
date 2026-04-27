@@ -682,29 +682,28 @@ fn test_cancel_match_emits_event() {
 // Issue #59: Test that pause() prevents match creation
 #[test]
 fn test_pause_prevents_match_creation() {
-    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
 
-    client.pause(&admin);
+    client.pause();
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_match(
+    assert_eq!(
+        client.try_create_match(
             &player1, &player2, &100, &token,
             &String::from_str(&env, "paused_match"), &Platform::Lichess,
-        )
-    }));
-
-    assert!(result.is_err());
+        ),
+        Err(Ok(Error::ContractPaused))
+    );
 }
 
 // Issue #60: Test that unpause() re-enables match creation
 #[test]
 fn test_unpause_enables_match_creation() {
-    let (env, contract_id, _oracle, player1, player2, token, admin) = setup();
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
 
-    client.pause(&admin);
-    client.unpause(&admin);
+    client.pause();
+    client.unpause();
 
     let id = client.create_match(
         &player1, &player2, &100, &token,
@@ -719,7 +718,7 @@ fn test_unpause_enables_match_creation() {
 // Issue #61: Test that update_oracle() successfully rotates the oracle address
 #[test]
 fn test_update_oracle_rotates_address() {
-    let (env, contract_id, oracle, player1, player2, token, admin) = setup();
+    let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
     let client = EscrowContractClient::new(&env, &contract_id);
     let new_oracle = Address::generate(&env);
 
@@ -730,7 +729,7 @@ fn test_update_oracle_rotates_address() {
     client.deposit(&id, &player1);
     client.deposit(&id, &player2);
 
-    client.update_oracle(&new_oracle, &admin);
+    client.update_oracle(&new_oracle);
 
     let result = client.submit_result(
         &id, &String::from_str(&env, "oracle_test"), &Winner::Player1, &new_oracle
@@ -742,22 +741,51 @@ fn test_update_oracle_rotates_address() {
 // Issue #62: Test that non-admin cannot call pause(), unpause(), or update_oracle()
 #[test]
 fn test_non_admin_cannot_call_admin_functions() {
-    let (env, contract_id, _oracle, player1, _player2, _token, _admin) = setup();
-    let client = EscrowContractClient::new(&env, &contract_id);
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.pause(&player1)
-    }));
-    assert!(result.is_err());
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.unpause(&player1)
-    }));
-    assert!(result.is_err());
-
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
     let new_oracle = Address::generate(&env);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.update_oracle(&new_oracle, &player1)
-    }));
-    assert!(result.is_err());
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+    client.initialize(&oracle, &admin);
+
+    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+
+    env.set_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "pause",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }
+    .into()]);
+    assert!(client.try_pause().is_err());
+
+    env.set_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "unpause",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }
+    .into()]);
+    assert!(client.try_unpause().is_err());
+
+    env.set_auths(&[MockAuth {
+        address: &non_admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "update_oracle",
+            args: (new_oracle.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }
+    .into()]);
+    assert!(client.try_update_oracle(&new_oracle).is_err());
 }
