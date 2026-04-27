@@ -650,6 +650,23 @@ Verify that calling initialize twice on the same contract instance panics with "
 
 ---
 
+## Issue #67: Test: Test case #67 - Placeholder
+**Labels:** `testing`
+**Body:**
+**Category:** Backend - Testing
+**Priority:** Medium
+**Estimated Time:** 30 minutes
+
+**Description:**
+Define and implement test case #67 details.
+
+**Tasks:**
+- Add exact scenario for test case #67
+- Implement the corresponding test
+- Verify assertions and expected error/success behavior
+
+---
+
 ## Issue #72: Add Test: submit_result on already Cancelled match should return InvalidState
 **Labels:** `testing`
 **Body:**
