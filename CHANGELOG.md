@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Kiro AI-assisted development integration
+
 ## [1.0.0] - 2026-04-25
 
 ### Added
