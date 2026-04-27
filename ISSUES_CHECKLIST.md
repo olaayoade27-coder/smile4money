@@ -220,6 +220,28 @@
 
 ---
 
+## Additional Tests (issues.md #33, #34, #35, #55, #56, #72)
+
+- [x] **Issue #33**: Double deposit by same player returns AlreadyFunded
+  - Test: `test_double_deposit_same_player_fails`
+
+- [x] **Issue #34**: Negative stake_amount is rejected with InvalidAmount
+  - Test: `test_create_match_negative_stake_fails`
+
+- [x] **Issue #35**: get_escrow_balance returns 0 after cancel with partial deposit
+  - Test: `test_escrow_balance_zero_after_cancel`
+
+- [x] **Issue #55**: Multiple matches created and tracked independently
+  - Test: `test_multiple_matches_independent`
+
+- [x] **Issue #56**: Paused contract blocks deposit (and create_match, submit_result)
+  - Test: `test_pause_blocks_deposit`
+
+- [x] **Issue #72**: submit_result on Cancelled match returns InvalidState
+  - Test: `test_submit_result_on_cancelled_match_fails`
+
+---
+
 ## Summary
 
 | Category | Total | Fixed | Status |
@@ -230,7 +252,8 @@
 | Validation | 2 | 2 | ✅ |
 | Test Coverage | 10 | 10 | ✅ |
 | Infrastructure | 1 | 1 | ✅ |
-| **TOTAL** | **31** | **31** | **✅ COMPLETE** |
+| Additional Tests | 6 | 6 | ✅ |
+| **TOTAL** | **37** | **37** | **✅ COMPLETE** |
 
 ---
 
