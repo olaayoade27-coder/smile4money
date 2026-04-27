@@ -279,12 +279,16 @@ impl EscrowContract {
         let client = token::Client::new(&env, &m.token);
 
         match winner {
-            Winner::Player1 => {
-                client.transfer(&env.current_contract_address(), &m.player1, &(m.stake_amount * 2))
-            }
-            Winner::Player2 => {
-                client.transfer(&env.current_contract_address(), &m.player2, &(m.stake_amount * 2))
-            }
+            Winner::Player1 => client.transfer(
+                &env.current_contract_address(),
+                &m.player1,
+                &(m.stake_amount * 2),
+            ),
+            Winner::Player2 => client.transfer(
+                &env.current_contract_address(),
+                &m.player2,
+                &(m.stake_amount * 2),
+            ),
             Winner::Draw => {
                 client.transfer(&env.current_contract_address(), &m.player1, &m.stake_amount);
                 client.transfer(&env.current_contract_address(), &m.player2, &m.stake_amount);

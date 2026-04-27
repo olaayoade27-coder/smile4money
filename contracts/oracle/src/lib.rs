@@ -111,7 +111,11 @@ mod tests {
 
         assert!(!client.has_result(&0u64));
 
-        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Player1Wins);
+        client.submit_result(
+            &0u64,
+            &String::from_str(&env, "abc123"),
+            &MatchResult::Player1Wins,
+        );
 
         assert!(client.has_result(&0u64));
         assert_eq!(client.get_result(&0u64).result, MatchResult::Player1Wins);
@@ -127,7 +131,10 @@ mod tests {
     fn test_get_result_not_found() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
-        assert!(matches!(client.try_get_result(&999u64), Err(Ok(Error::ResultNotFound))));
+        assert!(matches!(
+            client.try_get_result(&999u64),
+            Err(Ok(Error::ResultNotFound))
+        ));
     }
 
     #[test]
@@ -145,12 +152,24 @@ mod tests {
             invoke: &MockAuthInvoke {
                 contract: &contract_id,
                 fn_name: "submit_result",
-                args: (0u64, String::from_str(&env, "game"), MatchResult::Player1Wins).into_val(&env),
+                args: (
+                    0u64,
+                    String::from_str(&env, "game"),
+                    MatchResult::Player1Wins,
+                )
+                    .into_val(&env),
                 sub_invokes: &[],
             },
-        }.into()]);
+        }
+        .into()]);
 
-        assert!(client.try_submit_result(&0u64, &String::from_str(&env, "game"), &MatchResult::Player1Wins).is_err());
+        assert!(client
+            .try_submit_result(
+                &0u64,
+                &String::from_str(&env, "game"),
+                &MatchResult::Player1Wins
+            )
+            .is_err());
     }
 
     #[test]
@@ -161,7 +180,10 @@ mod tests {
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
         client.initialize(&admin);
-        assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
+        assert_eq!(
+            client.try_initialize(&admin),
+            Err(Ok(Error::AlreadyInitialized))
+        );
     }
 
     #[test]
@@ -169,8 +191,16 @@ mod tests {
     fn test_duplicate_submit_fails() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
-        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
-        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Draw);
+        client.submit_result(
+            &0u64,
+            &String::from_str(&env, "abc123"),
+            &MatchResult::Draw,
+        );
+        client.submit_result(
+            &0u64,
+            &String::from_str(&env, "abc123"),
+            &MatchResult::Draw,
+        );
     }
 
     #[test]
