@@ -84,6 +84,25 @@ impl OracleContract {
     pub fn has_result(env: Env, match_id: u64) -> bool {
         env.storage().persistent().has(&DataKey::Result(match_id))
     }
+
+    /// Transfer admin rights to a new address. Requires current admin auth.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+
+        env.events().publish(
+            (Symbol::new(&env, "oracle"), symbol_short!("adm_xfer")),
+            (admin, new_admin),
+        );
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -200,6 +219,63 @@ mod tests {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
         assert!(!client.has_result(&999u64));
+    }
+
+    #[test]
+    fn test_transfer_admin_success() {
+        let (env, contract_id) = setup();
+        let client = OracleContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&new_admin);
+
+        // new admin can now submit a result; old admin cannot drive auth
+        client.submit_result(
+            &1u64,
+            &String::from_str(&env, "game1"),
+            &MatchResult::Player2Wins,
+        );
+        assert_eq!(client.get_result(&1u64).result, MatchResult::Player2Wins);
+    }
+
+    #[test]
+    fn test_transfer_admin_emits_event() {
+        let (env, contract_id) = setup();
+        let client = OracleContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+        client.transfer_admin(&new_admin);
+
+        let events = env.events().all();
+        let topics = vec![
+            &env,
+            Symbol::new(&env, "oracle").into_val(&env),
+            soroban_sdk::symbol_short!("adm_xfer").into_val(&env),
+        ];
+        assert!(events.iter().any(|(_, t, _)| t == topics));
+    }
+
+    #[test]
+    fn test_non_admin_cannot_transfer_admin() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let contract_id = env.register(OracleContract, ());
+        let client = OracleContractClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        env.set_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "transfer_admin",
+                args: (new_admin.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }
+        .into()]);
+
+        assert!(client.try_transfer_admin(&new_admin).is_err());
     }
 
     #[test]
