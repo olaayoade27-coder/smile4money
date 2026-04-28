@@ -650,6 +650,23 @@ Verify that calling initialize twice on the same contract instance panics with "
 
 ---
 
+## Issue #67: Test: Test case #67 - Placeholder
+**Labels:** `testing`
+**Body:**
+**Category:** Backend - Testing
+**Priority:** Medium
+**Estimated Time:** 30 minutes
+
+**Description:**
+Define and implement test case #67 details.
+
+**Tasks:**
+- Add exact scenario for test case #67
+- Implement the corresponding test
+- Verify assertions and expected error/success behavior
+
+---
+
 ## Issue #72: Add Test: submit_result on already Cancelled match should return InvalidState
 **Labels:** `testing`
 **Body:**
@@ -679,3 +696,18 @@ Verify that calling `submit_result` on a match that has been cancelled returns `
 - Create a match and cancel it via `cancel_match`
 - Call `submit_result` on the cancelled match
 - Assert `Error::InvalidState` is returned
+
+## Issue #104: Doc: Add contributing guide
+**Labels:** `documentation`
+**Body:**
+**Category:** Documentation
+**Priority:** Medium
+**Estimated Time:** 1 hour
+
+**Description:**
+There is no contributor guide explaining how to set up the development environment, run tests, submit issues, and open pull requests. New contributors have no clear entry point.
+
+**Tasks:**
+- Create `docs/contributing.md`
+- Cover: prerequisites, local setup, building, testing, branch naming, commit style, and PR process
+- Link from README

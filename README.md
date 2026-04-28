@@ -103,6 +103,7 @@ stellar keys generate deployer --network testnet
 - [Oracle Design](docs/oracle.md)
 - [Threat Model & Security](docs/security.md)
 - [Roadmap](docs/roadmap.md)
+- [Contributing Guide](docs/contributing.md)
 
 ## 🎓 Smart Contract API
 

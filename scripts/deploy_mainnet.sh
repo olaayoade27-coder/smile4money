@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# deploy_mainnet.sh — Build and deploy smile4money contracts to Stellar mainnet
+#
+# Prerequisites:
+#   stellar keys generate deployer --network mainnet
+#   Deployer account must be funded with real XLM before running this script.
+#
+# Usage:
+#   ./scripts/deploy_mainnet.sh
+#
+# Writes CONTRACT_ESCROW and CONTRACT_ORACLE to .env on success.
+#
+# WARNING: This deploys to the Stellar PUBLIC network. Transactions are
+# irreversible and consume real XLM. Verify all parameters before proceeding.
+# ---------------------------------------------------------------------------
+
+NETWORK="mainnet"
+RPC_URL="https://soroban-mainnet.stellar.org"
+NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+IDENTITY="deployer"
+WASM_DIR="target/wasm32-unknown-unknown/release"
+
+# Verify stellar CLI is available
+if ! command -v stellar &>/dev/null; then
+  echo "Error: stellar CLI not found. Install it from https://developers.stellar.org/docs/tools/developer-tools/cli/install-cli" >&2
+  exit 1
+fi
+
+# Verify the deployer identity exists
+if ! stellar keys show "$IDENTITY" &>/dev/null; then
+  echo "Error: identity '$IDENTITY' not found. Run: stellar keys generate $IDENTITY --network $NETWORK" >&2
+  exit 1
+fi
+
+DEPLOYER_ADDRESS=$(stellar keys address "$IDENTITY")
+echo "Deployer: $DEPLOYER_ADDRESS"
+echo "Network:  $NETWORK (PUBLIC — real XLM will be spent)"
+echo ""
+read -r -p "Continue with mainnet deployment? [y/N] " confirm
+if [[ "${confirm,,}" != "y" ]]; then
+  echo "Aborted."
+  exit 0
+fi
+
+# Build WASM
+echo "Building contracts..."
+cargo build --target wasm32-unknown-unknown --release --quiet
+
+ESCROW_WASM="$WASM_DIR/escrow.wasm"
+ORACLE_WASM="$WASM_DIR/oracle.wasm"
+
+if [[ ! -f "$ESCROW_WASM" ]]; then
+  echo "Error: $ESCROW_WASM not found after build" >&2
+  exit 1
+fi
+if [[ ! -f "$ORACLE_WASM" ]]; then
+  echo "Error: $ORACLE_WASM not found after build" >&2
+  exit 1
+fi
+
+# Deploy escrow contract
+echo "Deploying escrow contract..."
+CONTRACT_ESCROW=$(stellar contract deploy \
+  --wasm "$ESCROW_WASM" \
+  --source "$IDENTITY" \
+  --network "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  --network-passphrase "$NETWORK_PASSPHRASE")
+echo "Escrow contract: $CONTRACT_ESCROW"
+
+# Deploy oracle contract
+echo "Deploying oracle contract..."
+CONTRACT_ORACLE=$(stellar contract deploy \
+  --wasm "$ORACLE_WASM" \
+  --source "$IDENTITY" \
+  --network "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  --network-passphrase "$NETWORK_PASSPHRASE")
+echo "Oracle contract: $CONTRACT_ORACLE"
+
+# Initialize oracle contract (admin = deployer)
+echo "Initializing oracle contract..."
+stellar contract invoke \
+  --id "$CONTRACT_ORACLE" \
+  --source "$IDENTITY" \
+  --network "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  --network-passphrase "$NETWORK_PASSPHRASE" \
+  -- initialize \
+  --admin "$DEPLOYER_ADDRESS"
+
+# Initialize escrow contract (oracle = oracle contract address, admin = deployer)
+echo "Initializing escrow contract..."
+stellar contract invoke \
+  --id "$CONTRACT_ESCROW" \
+  --source "$IDENTITY" \
+  --network "$NETWORK" \
+  --rpc-url "$RPC_URL" \
+  --network-passphrase "$NETWORK_PASSPHRASE" \
+  -- initialize \
+  --oracle "$CONTRACT_ORACLE" \
+  --admin "$DEPLOYER_ADDRESS"
+
+# Write contract IDs to .env
+ENV_FILE=".env"
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp .env.example "$ENV_FILE"
+fi
+
+# Update or append CONTRACT_ESCROW
+if grep -q "^CONTRACT_ESCROW=" "$ENV_FILE"; then
+  sed -i "s|^CONTRACT_ESCROW=.*|CONTRACT_ESCROW=$CONTRACT_ESCROW|" "$ENV_FILE"
+else
+  echo "CONTRACT_ESCROW=$CONTRACT_ESCROW" >> "$ENV_FILE"
+fi
+
+# Update or append CONTRACT_ORACLE
+if grep -q "^CONTRACT_ORACLE=" "$ENV_FILE"; then
+  sed -i "s|^CONTRACT_ORACLE=.*|CONTRACT_ORACLE=$CONTRACT_ORACLE|" "$ENV_FILE"
+else
+  echo "CONTRACT_ORACLE=$CONTRACT_ORACLE" >> "$ENV_FILE"
+fi
+
+# Update STELLAR_NETWORK and RPC URL in .env to reflect mainnet
+if grep -q "^STELLAR_NETWORK=" "$ENV_FILE"; then
+  sed -i "s|^STELLAR_NETWORK=.*|STELLAR_NETWORK=mainnet|" "$ENV_FILE"
+fi
+if grep -q "^STELLAR_RPC_URL=" "$ENV_FILE"; then
+  sed -i "s|^STELLAR_RPC_URL=.*|STELLAR_RPC_URL=$RPC_URL|" "$ENV_FILE"
+fi
+if grep -q "^VITE_STELLAR_NETWORK=" "$ENV_FILE"; then
+  sed -i "s|^VITE_STELLAR_NETWORK=.*|VITE_STELLAR_NETWORK=mainnet|" "$ENV_FILE"
+fi
+if grep -q "^VITE_STELLAR_RPC_URL=" "$ENV_FILE"; then
+  sed -i "s|^VITE_STELLAR_RPC_URL=.*|VITE_STELLAR_RPC_URL=$RPC_URL|" "$ENV_FILE"
+fi
+
+echo ""
+echo "Mainnet deployment complete."
+echo "  Escrow:  $CONTRACT_ESCROW"
+echo "  Oracle:  $CONTRACT_ORACLE"
+echo "Contract IDs written to $ENV_FILE"
