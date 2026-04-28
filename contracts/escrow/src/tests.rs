@@ -247,6 +247,44 @@ fn test_non_oracle_cannot_submit_result() {
     );
 }
 
+/// Verify that only the registered oracle address can submit results.
+/// A random address passed as `caller` must be rejected with `Unauthorized`
+/// regardless of what auth it presents.
+#[test]
+fn test_submit_result_random_caller_is_unauthorized() {
+    use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+
+    let (env, contract_id, _oracle, player1, player2, token, _admin) = setup();
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let id = client.create_match(
+        &player1, &player2, &100, &token,
+        &String::from_str(&env, "random_caller"), &Platform::Lichess,
+    );
+    client.deposit(&id, &player1);
+    client.deposit(&id, &player2);
+
+    let random = Address::generate(&env);
+    let game_id = String::from_str(&env, "random_caller");
+
+    // Provide auth for the random address — the contract must still reject it.
+    env.set_auths(&[MockAuth {
+        address: &random,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "submit_result",
+            args: (id, game_id.clone(), Winner::Player1, random.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }
+    .into()]);
+
+    assert_eq!(
+        client.try_submit_result(&id, &game_id, &Winner::Player1, &random),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
 #[test]
 fn test_submit_result_on_pending_match_fails() {
     let (env, contract_id, oracle, player1, player2, token, _admin) = setup();
