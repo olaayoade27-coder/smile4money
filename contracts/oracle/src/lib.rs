@@ -4,7 +4,7 @@ mod errors;
 mod types;
 
 use errors::Error;
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, IntoVal, String, Symbol};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
 use types::{DataKey, MatchResult, ResultEntry};
 
 /// ~30 days at 5s/ledger.
@@ -26,6 +26,7 @@ impl OracleContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.events()
             .publish((Symbol::new(&env, "oracle"), symbol_short!("init")), admin);
+        Ok(())
     }
 
     /// Admin submits a verified match result on-chain.
@@ -89,8 +90,8 @@ impl OracleContract {
 mod tests {
     use super::*;
     use soroban_sdk::{
-        testutils::{storage::Persistent as _, Address as _},
-        Address, Env, IntoVal, String,
+        testutils::{storage::Persistent as _, Address as _, Events},
+        vec, Address, Env, IntoVal, String, Symbol,
     };
 
     fn setup() -> (Env, Address) {
@@ -99,7 +100,7 @@ mod tests {
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin).unwrap();
+        client.initialize(&admin);
         (env, contract_id)
     }
 
@@ -110,7 +111,11 @@ mod tests {
 
         assert!(!client.has_result(&0u64));
 
-        client.submit_result(&0u64, &String::from_str(&env, "abc123"), &MatchResult::Player1Wins);
+        client.submit_result(
+            &0u64,
+            &String::from_str(&env, "abc123"),
+            &MatchResult::Player1Wins,
+        );
 
         assert!(client.has_result(&0u64));
         assert_eq!(client.get_result(&0u64).result, MatchResult::Player1Wins);
@@ -126,7 +131,10 @@ mod tests {
     fn test_get_result_not_found() {
         let (env, contract_id) = setup();
         let client = OracleContractClient::new(&env, &contract_id);
-        assert!(matches!(client.try_get_result(&999u64), Err(Ok(Error::ResultNotFound))));
+        assert!(matches!(
+            client.try_get_result(&999u64),
+            Err(Ok(Error::ResultNotFound))
+        ));
     }
 
     #[test]
@@ -136,7 +144,7 @@ mod tests {
         let non_admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin).unwrap();
+        client.initialize(&admin);
 
         use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
         env.set_auths(&[MockAuth {
@@ -144,12 +152,24 @@ mod tests {
             invoke: &MockAuthInvoke {
                 contract: &contract_id,
                 fn_name: "submit_result",
-                args: (0u64, String::from_str(&env, "game"), MatchResult::Player1Wins).into_val(&env),
+                args: (
+                    0u64,
+                    String::from_str(&env, "game"),
+                    MatchResult::Player1Wins,
+                )
+                    .into_val(&env),
                 sub_invokes: &[],
             },
-        }.into()]);
+        }
+        .into()]);
 
-        assert!(client.try_submit_result(&0u64, &String::from_str(&env, "game"), &MatchResult::Player1Wins).is_err());
+        assert!(client
+            .try_submit_result(
+                &0u64,
+                &String::from_str(&env, "game"),
+                &MatchResult::Player1Wins
+            )
+            .is_err());
     }
 
     #[test]
@@ -159,8 +179,11 @@ mod tests {
         let admin = Address::generate(&env);
         let contract_id = env.register(OracleContract, ());
         let client = OracleContractClient::new(&env, &contract_id);
-        client.initialize(&admin).unwrap();
-        assert_eq!(client.try_initialize(&admin), Err(Ok(Error::AlreadyInitialized)));
+        client.initialize(&admin);
+        assert_eq!(
+            client.try_initialize(&admin),
+            Err(Ok(Error::AlreadyInitialized))
+        );
     }
 
     #[test]
@@ -197,3 +220,4 @@ mod tests {
         let matched = events.iter().find(|(_, t, _)| *t == topics);
         assert!(matched.is_some());
     }
+}
